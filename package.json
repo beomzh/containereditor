@@ -1,14 +1,32 @@
 {
   "name": "dockereditor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Dockerfile / Containerfile 시각 편집기",
+  "description": "Visual editor and CLI for Dockerfile / Containerfile: validate, check base images, preview and build.",
+  "license": "Apache-2.0",
+  "author": "beomzh",
+  "homepage": "https://github.com/beomzh/dockereditor#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beomzh/dockereditor.git"
+  },
+  "bugs": "https://github.com/beomzh/dockereditor/issues",
+  "bin": {
+    "dockereditor": "bin/dockereditor.js"
+  },
+  "files": [
+    "bin",
+    "public",
+    "server",
+    "LICENSE",
+    "NOTICE"
+  ],
   "scripts": {
     "start": "node server/server.js",
     "test": "node --test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }

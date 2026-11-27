@@ -1,48 +1,131 @@
-# Dockerfile 에디터
+# Dockerfile Editor
 
-Dockerfile / Containerfile 을 만들고 고치면서 검증 결과와 예상되는 이미지 모습을 바로 보는 로컬 웹 에디터입니다. 외부 패키지 없이 Node.js 20 이상만 있으면 됩니다.
+[![CI](https://github.com/beomzh/dockereditor/actions/workflows/ci.yml/badge.svg)](https://github.com/beomzh/dockereditor/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## 실행
+English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
+
+Write and edit a **Dockerfile / Containerfile**, check it, see what the image will look like, and build it — in the browser or from the command line. No third-party packages.
+
+## Install
+
+Needs Node.js 22 or later. Building also needs Docker or Podman.
 
 ```bash
-npm start
+npm install -g github:beomzh/dockereditor#v0.2.0
 ```
 
-브라우저에서 http://localhost:4173 을 엽니다. 포트를 바꾸려면 `PORT=8080 npm start`.
+Or run from a clone:
 
-## 할 수 있는 것
+```bash
+git clone https://github.com/beomzh/dockereditor.git
+```
 
-| 영역 | 기능 |
+```bash
+cd dockereditor && node bin/dockereditor.js serve
+```
+
+## Quick start
+
+```bash
+dockereditor new node
+```
+
+```bash
+dockereditor validate
+```
+
+```bash
+dockereditor serve --allow-build
+```
+
+Open the URL it prints. The screen works in three steps: write in the middle, **① Check images**, then **② Build**.
+
+## Web editor
+
+| Area | What it does |
 |---|---|
-| 편집기 (가운데) | 직접 입력, 문법 색상, 문제 줄 표시. 아래 목록을 누르면 해당 줄로 이동 |
-| 스테이지·설정 (왼쪽) | `FROM` 이미지·이름 변경, `ARG`/`ENV`/`LABEL`/`USER`/`WORKDIR`/`EXPOSE`/`CMD`/`ENTRYPOINT` 추가·수정·삭제 |
-| 멀티 스테이지 | 스테이지 추가·삭제, 원하는 지시어부터 분리, 한 스테이지만 따로 저장 |
-| `FROM 확인` 버튼 | 레지스트리에 이미지:태그와 플랫폼이 있는지 확인. 없으면 비슷한 태그 추천 (Docker Hub) |
-| 결과 미리보기 (오른쪽) | 스테이지 흐름, 실행될 프로세스, USER·WORKDIR·ENV·포트, 복사되는 파일, 레이어, `--build-arg` 시험, 빌드 명령 |
-| 파일 | 열기(끌어다 놓기 가능), 저장(다운로드), 템플릿, 되돌리기. 작성 중인 내용은 브라우저에 자동 저장 |
+| Editor | Syntax colouring, problem lines, click a message to jump to it |
+| Stages and settings (left) | Change `FROM`; add, edit, delete `ARG` `ENV` `LABEL` `USER` `WORKDIR` `EXPOSE` `CMD` `ENTRYPOINT`; add, delete, split or export stages |
+| Result | Stage flow, final process, user, environment, ports, copied files, layers, `--build-arg` trial |
+| Compatibility | Which base images exist for linux/amd64, linux/arm64, windows/amd64, windows/arm64 |
+| Build | Real build, with the result location shown before and after |
 
-`FROM 확인` 을 누르면 베이스 이미지의 실제 설정(ENV, USER, CMD 등)을 읽어 미리보기에 반영합니다.
+Language: English (default), 한국어, 简体中文, 日本語.
 
-## 알아둘 점
+## Command line
 
-- **빌드를 실행하지 않습니다.** 파일을 해석한 결과라서 `RUN` 이 만드는 파일·사용자, 빌드 컨텍스트에 파일이 실제로 있는지는 확인하지 않습니다.
-- 자체 규칙으로 검사하므로 Docker/Podman 의 모든 오류를 잡지는 못합니다. 최종 확인은 실제 빌드로 하세요.
-- 로그인이 필요한 비공개 이미지는 확인할 수 없습니다.
-- Docker Hub 는 익명 요청에 한도가 있습니다. 설정을 읽는 요청이 한도에 포함됩니다.
-- `ARG`/`ENV` 를 폼에서 고치면 해당 지시어 안의 주석과 따옴표 모양이 바뀔 수 있습니다.
-- 서버는 `127.0.0.1` 에서만 열립니다. 외부에 공개하는 용도로 만들지 않았습니다.
+| Command | Description |
+|---|---|
+| `validate [file]` | Syntax and best-practice checks (`--strict`, `--json`) |
+| `check [file]` | `FROM` images exist? Platform table. `--platform linux/amd64,linux/arm64` fails if one is unsupported |
+| `preview [file]` | Stages and the resulting image (`--online` reads base image settings) |
+| `new [template]` | `node`, `go`, `python`, `java`, `windows`, `blank` |
+| `add` / `set` / `remove` / `from` | Edit instructions, for example `set Dockerfile ENV NODE_ENV=production` |
+| `stage add\|remove\|rename\|split\|extract` | Work with stages |
+| `build [file]` | Build with Docker or Podman (`--dry-run` shows the commands) |
+| `serve` | Start the web editor |
 
-## 구조
+`file` defaults to `Dockerfile`, then `Containerfile`. Use `--lang ko|zh|ja` or `DOCKEREDITOR_LANG`. `dockereditor --help` lists every option. Exit codes: `0` ok, `1` problems found, `2` usage error, `3` build failed.
 
+## Where the build result goes
+
+| `--output` | Result | Location |
+|---|---|---|
+| `image` (default) | Image tagged `--tag` | The engine's local image store. With Docker Desktop or Podman machine it is inside a VM |
+| `archive` | `.tar` for `docker load` / `podman load` | The file given by `--dest` |
+| `folder` | Files of the final stage | The folder given by `--dest` |
+
+The location is printed **before** the build starts. Existing files and non-empty folders are not overwritten (CLI: `--force` to allow). Your Dockerfile is not modified.
+
+```bash
+dockereditor build --output folder --dest out/rootfs
 ```
-public/core/   파서, 검증, 결과 계산, 편집 연산 (브라우저와 테스트가 함께 사용)
-public/        화면
-server/        정적 파일 서버와 레지스트리 조회
-test/          단위 테스트
+
+## Platform support
+
+| Host | Tool and tests | Real build in CI |
+|---|---|---|
+| Linux amd64 | yes | yes |
+| Linux arm64 | yes | yes |
+| Windows amd64 | yes | yes (Windows containers: image, archive) |
+| Windows arm64 | yes | no (the CI runner has no Docker) |
+
+- Linux images need a Linux engine; Windows images need a Windows Docker daemon.
+- The Windows daemon cannot extract to a folder.
+- Building for another CPU architecture needs QEMU emulation.
+- Podman support follows the Docker command line but is not exercised in CI.
+
+## Remote Linux server
+
+The server listens on `127.0.0.1` only. From your own machine, tunnel to it:
+
+```bash
+ssh -L 4173:localhost:4173 user@server
 ```
 
-## 테스트
+Then run `dockereditor serve` on the server and open the printed URL locally.
+
+## Limits
+
+- The preview reads the file without building: files and users made by `RUN` are not shown.
+- Checks are this project's own rules; they do not catch every Docker/Podman error.
+- Private images that need a login cannot be checked.
+- Docker Hub limits anonymous requests.
+- Editing `ARG`/`ENV` through forms or `set` can change comments and quoting inside that instruction.
+
+## Security
+
+Building runs the commands in the Dockerfile on your machine. Browser builds are off unless you start with `--allow-build`, need the token in the printed URL, and are limited to the workspace folder. Details: [SECURITY.md](SECURITY.md).
+
+## Development
 
 ```bash
 npm test
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+[Apache-2.0](LICENSE) © 2026 beomzh. Docker and Podman are trademarks of their owners; this project is not affiliated with them.

@@ -1,6 +1,7 @@
-// 컨테이너 레지스트리(Registry HTTP API v2)에서 이미지:태그 존재 여부와 config 를 읽는다.
+// Reads image:tag existence and config from a container registry (Registry HTTP API v2).
 
 import { parseImageRef } from '../public/core/imageref.js';
+import { logger } from './log.js';
 
 const ACCEPT = [
   'application/vnd.oci.image.index.v1+json',
@@ -13,7 +14,7 @@ const TIMEOUT_MS = 10_000;
 const CACHE_MS = 10 * 60_000;
 const cache = new Map();
 
-const log = (level, message) => console[level](`${new Date().toISOString()} [REGISTRY] ${message}`);
+const log = logger('REGISTRY');
 
 function editDistance(a, b) {
   let row = Array.from({ length: b.length + 1 }, (_, j) => j);
@@ -28,7 +29,7 @@ function editDistance(a, b) {
 export function createChecker(fetchImpl = fetch) {
   const request = (url, options = {}) => fetchImpl(url, { ...options, signal: AbortSignal.timeout(TIMEOUT_MS) });
 
-  // 401 이면 Bearer 토큰을 익명으로 받아 한 번 더 시도한다.
+  // On 401, fetch an anonymous bearer token and retry once.
   async function authed(url, options, session) {
     const headers = { ...options.headers, ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}) };
     const res = await request(url, { ...options, headers });
@@ -56,11 +57,11 @@ export function createChecker(fetchImpl = fetch) {
       const res = await request(url, {});
       if (!res.ok) return [];
       const names = ((await res.json()).results ?? []).map((r) => r.name);
-      // 같은 버전으로 시작하는 태그를 먼저, 그 안에서는 입력과 가까운 순서로
+      // Tags starting with the same version first, then by closeness to the input
       const score = (name) => (name.startsWith(stem) ? 0 : 1000) + editDistance(name, tag);
       return names.sort((a, b) => score(a) - score(b)).slice(0, 8);
     } catch (e) {
-      log('warn', `태그 추천 실패: repo=${repository} reason=${e.message}`);
+      log('warn', `tag suggestion failed: repo=${repository} reason=${e.message}`);
       return [];
     }
   }
@@ -68,7 +69,7 @@ export function createChecker(fetchImpl = fetch) {
   async function readConfig(base, reference, session, platform) {
     const get = async (path) => authed(`${base}${path}`, { headers: { Accept: ACCEPT } }, session);
     let res = await get(`/manifests/${reference}`);
-    if (!res.ok) return { configError: `manifest 조회 실패 (HTTP ${res.status})` };
+    if (!res.ok) return { configError: `manifest HTTP ${res.status}` };
     let manifest = await res.json();
     let platforms = [];
     if (Array.isArray(manifest.manifests)) {
@@ -80,18 +81,19 @@ export function createChecker(fetchImpl = fetch) {
         && (!variant || m.platform.variant === variant));
       if (!match) return { platforms, platformMissing: true };
       res = await get(`/manifests/${match.digest}`);
-      if (!res.ok) return { platforms, configError: `manifest 조회 실패 (HTTP ${res.status})` };
+      if (!res.ok) return { platforms, configError: `manifest HTTP ${res.status}` };
       manifest = await res.json();
     }
     if (!manifest.config?.digest) return { platforms };
     const blob = await get(`/blobs/${manifest.config.digest}`);
-    if (!blob.ok) return { platforms, configError: `config 조회 실패 (HTTP ${blob.status})` };
+    if (!blob.ok) return { platforms, configError: `config HTTP ${blob.status}` };
     const image = await blob.json();
     const size = (manifest.layers ?? []).reduce((sum, l) => sum + (l.size ?? 0), 0);
     const actual = [image.os, image.architecture].filter(Boolean).join('/');
     return {
       platforms: platforms.length ? platforms : [actual],
       platformMissing: platforms.length === 0 && actual !== platform.split('/').slice(0, 2).join('/'),
+      os: image.os,
       config: image.config ?? {},
       compressedSize: size,
       layerCount: manifest.layers?.length ?? 0,
@@ -100,7 +102,7 @@ export function createChecker(fetchImpl = fetch) {
 
   async function lookup(ref, platform) {
     const parsed = parseImageRef(ref);
-    if (!parsed.ok) return { status: 'invalid', message: parsed.error };
+    if (!parsed.ok) return { status: 'invalid', key: parsed.key, params: parsed.params };
     const { registry, repository } = parsed;
     const reference = parsed.digest ?? parsed.tag;
     const host = registry === 'docker.io' ? 'registry-1.docker.io' : registry;
@@ -114,20 +116,20 @@ export function createChecker(fetchImpl = fetch) {
       try {
         detail = await readConfig(base, reference, session, platform);
       } catch (e) {
-        log('warn', `config 읽기 실패: ref=${ref} reason=${e.message}`);
+        log('warn', `config read failed: ref=${ref} reason=${e.message}`);
         detail = { configError: e.message };
       }
       return { status: 'exists', ...info, digest: head.headers.get('docker-content-digest'), ...detail };
     }
     if (head.status === 404) {
       const suggestions = registry === 'docker.io' && !parsed.digest ? await suggestTags(repository, parsed.tag) : [];
-      return { status: 'not_found', ...info, suggestions, message: '태그 또는 저장소를 찾을 수 없습니다.' };
+      return { status: 'not_found', ...info, suggestions, key: 'reg.notFound' };
     }
     if (head.status === 401 || head.status === 403) {
-      return { status: 'auth_required', ...info, message: '저장소가 없거나 비공개입니다. 로그인 없이는 확인할 수 없습니다.' };
+      return { status: 'auth_required', ...info, key: 'reg.auth' };
     }
-    if (head.status === 429) return { status: 'rate_limited', ...info, message: '레지스트리 요청 한도를 넘었습니다. 잠시 후 다시 시도하세요.' };
-    return { status: 'error', ...info, message: `레지스트리 응답: HTTP ${head.status}` };
+    if (head.status === 429) return { status: 'rate_limited', ...info, key: 'reg.rate' };
+    return { status: 'error', ...info, key: 'reg.http', params: { status: head.status } };
   }
 
   return async function checkImage(ref, platform = 'linux/amd64') {
@@ -139,8 +141,8 @@ export function createChecker(fetchImpl = fetch) {
       value = await lookup(ref, platform);
     } catch (e) {
       const reason = e.cause?.code ?? e.name;
-      log('error', `확인 실패: ref=${ref} reason=${reason} ${e.message}`);
-      return { status: 'error', message: `레지스트리에 연결할 수 없습니다 (${reason}).` };
+      log('error', `check failed: ref=${ref} reason=${reason} ${e.message}`);
+      return { status: 'error', key: 'reg.network', params: { reason } };
     }
     log('info', `ref=${ref} platform=${platform} status=${value.status}`);
     if (fetchImpl === fetch && (value.status === 'exists' && !value.configError || value.status === 'not_found')) {

@@ -1,4 +1,4 @@
-// 변수 치환: $VAR, ${VAR}, ${VAR:-기본값}, ${VAR:+대체값}, \$
+// Variable expansion: $VAR, ${VAR}, ${VAR:-default}, ${VAR:+alternate}, \$
 
 export function expand(input, scope, missing) {
   let out = '';

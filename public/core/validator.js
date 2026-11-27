@@ -1,8 +1,9 @@
-// 문법 및 모범 사례 검사. severity: error(빌드 실패) / warning(위험) / info(개선 제안)
+// Syntax and best-practice checks. severity: error (build fails) / warning (risk) / info (suggestion)
 
 import { INSTRUCTIONS, parsePairs, splitFlags, parseExecForm, tokenize } from './parser.js';
 import { parseImageRef } from './imageref.js';
 import { simulate, findStage, AUTOMATIC_ARGS } from './simulator.js';
+import { translator } from './i18n.js';
 
 const FLAGS = {
   FROM: ['platform'],
@@ -17,16 +18,17 @@ const ID = /^(?:\d+|[a-zA-Z_][a-zA-Z0-9_.-]*\$?)$/;
 const VAR_ONLY = /^\$(?:\{[^}]+\}|[A-Za-z_]\w*)$/;
 const SIGNALS = /^(?:\d+|(?:SIG)?(?:HUP|INT|QUIT|KILL|TERM|USR1|USR2|WINCH|STOP|CONT|ABRT|ALRM|PIPE)|SIGRTMIN\+\d+|SIGRTMAX-\d+)$/;
 
+/** Returns null when valid, otherwise a message {key, params}. */
 export function checkUserSpec(spec) {
-  if (/\s/.test(spec)) return '공백을 포함할 수 없습니다. 형식은 USER 이름|UID[:그룹|GID] 입니다.';
+  const problem = (key, value) => ({ key, params: { value } });
+  if (/\s/.test(spec)) return problem('diag.userSpace');
   const parts = spec.replace(/\$\{[^}]*\}/g, '$V').split(':');
-  if (parts.length > 2) return '":" 는 사용자와 그룹 사이에 한 번만 쓸 수 있습니다.';
-  for (const [i, part] of parts.entries()) {
-    const label = i === 0 ? '사용자' : '그룹';
-    if (part === '') return `${label} 값이 비어 있습니다.`;
+  if (parts.length > 2) return problem('diag.userColon');
+  for (const part of parts) {
+    if (part === '') return problem('diag.userEmpty');
     if (VAR_ONLY.test(part)) continue;
-    if (!ID.test(part)) return `${label} "${part}" 는 올바른 이름이나 숫자 ID 가 아닙니다.`;
-    if (/^\d+$/.test(part) && Number(part) > 2147483647) return `${label} ID 가 허용 범위를 넘습니다.`;
+    if (!ID.test(part)) return problem('diag.userBad', part);
+    if (/^\d+$/.test(part) && Number(part) > 2147483647) return problem('diag.userRange', part);
   }
   return null;
 }
@@ -51,18 +53,27 @@ function createsUser(command, name) {
 export function validate(text, options = {}) {
   const sim = options.sim ?? simulate(text, options);
   const { parsed, globals, rawStages: stages } = sim;
+  const t = translator(options.lang);
   const out = [];
-  const add = (severity, line, message, code) => out.push({ severity, line, message, code });
-  const error = (line, m, code) => add('error', line, m, code);
-  const warn = (line, m, code) => add('warning', line, m, code);
-  const info = (line, m, code) => add('info', line, m, code);
+  const add = (severity, line, code, key, params) => out.push({ severity, line, message: t(key, params), code });
+  const error = (line, code, key, params) => add('error', line, code, key, params);
+  const warn = (line, code, key, params) => add('warning', line, code, key, params);
+  const info = (line, code, key, params) => add('info', line, code, key, params);
+  const userProblem = ({ key, params }) => t(key, params);
 
-  for (const issue of parsed.issues) add(issue.severity ?? 'error', issue.line, issue.message, 'parse');
+  for (const issue of parsed.issues) add(issue.severity ?? 'error', issue.line, 'parse', issue.key, issue.params);
 
-  if (stages.length === 0) error(1, 'FROM 지시어가 필요합니다.', 'no-from');
+  // Which stage each instruction belongs to, so Windows rules apply per stage.
+  const windowsLines = new Set();
+  for (const stage of stages) {
+    if (sim.stages[stage.index].os !== 'windows') continue;
+    for (const ins of [stage.from, ...stage.instructions]) windowsLines.add(ins.startLine);
+  }
+
+  if (stages.length === 0) error(1, 'no-from', 'diag.noFrom');
   for (const ins of globals) {
     if (ins.keyword !== 'ARG' && INSTRUCTIONS.includes(ins.keyword)) {
-      error(ins.startLine, `첫 FROM 앞에는 ARG 만 올 수 있습니다 (${ins.keyword}).`, 'before-from');
+      error(ins.startLine, 'before-from', 'diag.beforeFrom', { kw: ins.keyword });
     }
   }
 
@@ -70,57 +81,66 @@ export function validate(text, options = {}) {
   const majorityUpper = upper >= parsed.instructions.length / 2;
   for (const ins of parsed.instructions) {
     const consistent = majorityUpper ? ins.rawKeyword === ins.keyword : ins.rawKeyword === ins.keyword.toLowerCase();
-    if (INSTRUCTIONS.includes(ins.keyword) && !consistent) info(ins.startLine, `지시어 대소문자를 통일하세요: ${ins.rawKeyword}`, 'casing');
+    if (INSTRUCTIONS.includes(ins.keyword) && !consistent) info(ins.startLine, 'casing', 'diag.casing', { kw: ins.rawKeyword });
     checkInstruction(ins);
   }
 
   function checkInstruction(ins, onbuild = false) {
     const line = ins.startLine;
     const { keyword, args } = ins;
+    const windows = windowsLines.has(line);
+    const unsupported = (feature) => error(line, 'windows', 'diag.winUnsupported', { feature });
     if (!INSTRUCTIONS.includes(keyword)) {
       const near = INSTRUCTIONS.map((k) => [k, distance(k, keyword)]).sort((a, b) => a[1] - b[1])[0];
-      error(line, `알 수 없는 지시어 "${ins.rawKeyword}"${near[1] <= 2 ? ` — ${near[0]} 를 의도하셨나요?` : ''}`, 'unknown');
+      error(line, 'unknown', near[1] <= 2 ? 'diag.unknownNear' : 'diag.unknown', { kw: ins.rawKeyword, near: near[0] });
       return;
     }
-    if (args === '') { error(line, `${keyword} 에 인자가 없습니다.`, 'empty'); return; }
+    if (args === '') { error(line, 'empty', 'diag.emptyArgs', { kw: keyword }); return; }
 
     const { flags, rest } = splitFlags(args);
     if (FLAGS[keyword]) {
       for (const f of flags) {
-        if (!FLAGS[keyword].includes(f.name)) error(line, `${keyword} 에서 지원하지 않는 옵션입니다: --${f.name}`, 'flag');
+        if (!FLAGS[keyword].includes(f.name)) error(line, 'flag', 'diag.flag', { kw: keyword, flag: f.name });
       }
+    }
+    if (windows) {
+      if (ins.heredocs.length) unsupported('heredoc');
+      if (flags.some((f) => f.name === 'chmod')) unsupported('--chmod');
+      if (keyword === 'RUN' && flags.some((f) => f.name === 'mount')) unsupported('RUN --mount');
+      if (parsed.escape === '\\' && /[A-Za-z]:\\/.test(args) && !args.startsWith('[')) warn(line, 'windows', 'diag.winEscape');
     }
 
     switch (keyword) {
       case 'MAINTAINER':
-        warn(line, 'MAINTAINER 는 폐기 예정입니다. LABEL maintainer="..." 를 쓰세요.', 'maintainer');
+        warn(line, 'maintainer', 'diag.maintainer');
         break;
       case 'ENV':
       case 'LABEL':
       case 'ARG': {
         const { pairs, legacy, unterminated } = parsePairs(ins, parsed.escape);
-        if (unterminated) error(line, '따옴표가 닫히지 않았습니다.', 'quote');
+        if (unterminated) error(line, 'quote', 'diag.quote');
         if (legacy) {
-          if (pairs[0].value === null) error(line, `${keyword} ${pairs[0].key} 에 값이 없습니다. ${keyword} key=value 형식으로 쓰세요.`, 'pair');
-          else warn(line, `"${keyword} key value" 는 옛 형식입니다. ${keyword} key=value 를 쓰세요.`, 'legacy-pair');
+          if (pairs[0].value === null) error(line, 'pair', 'diag.pairMissing', { kw: keyword, key: pairs[0].key });
+          else warn(line, 'legacy-pair', 'diag.legacyPair', { kw: keyword });
         }
         for (const { key, value } of pairs) {
-          if (!legacy && keyword !== 'ARG' && value === null) error(line, `"${key}" 에 "=" 와 값이 필요합니다.`, 'pair');
-          if (keyword !== 'LABEL' && !/^[A-Za-z_]\w*$/.test(key)) error(line, `변수 이름이 잘못되었습니다: "${key}"`, 'var-name');
+          if (!legacy && keyword !== 'ARG' && value === null) error(line, 'pair', 'diag.pairEq', { key });
+          if (keyword !== 'LABEL' && !/^[A-Za-z_]\w*$/.test(key)) error(line, 'var-name', 'diag.varName', { key });
           if (keyword !== 'LABEL' && SECRET_NAME.test(key) && value !== '' && !/_(FILE|PATH)$/i.test(key)) {
-            warn(line, `"${key}" 는 비밀값으로 보입니다. ARG/ENV 값은 이미지 기록에 남습니다. RUN --mount=type=secret 을 쓰세요.`, 'secret');
+            warn(line, 'secret', 'diag.secret', { key });
           }
         }
         break;
       }
       case 'USER': {
-        const problem = checkUserSpec(args);
-        if (problem) error(line, `USER: ${problem}`, 'user');
+        // Windows account names may contain spaces and backslashes.
+        const problem = windows ? null : checkUserSpec(args);
+        if (problem) error(line, 'user', problem.key, problem.params);
         break;
       }
       case 'WORKDIR':
-        if (!args.startsWith('/') && !args.startsWith('$') && !/^[A-Za-z]:/.test(args)) {
-          warn(line, 'WORKDIR 는 절대 경로를 권장합니다.', 'workdir');
+        if (!args.startsWith('/') && !args.startsWith('$') && !/^("?[A-Za-z]:|\\)/.test(args)) {
+          warn(line, 'workdir', 'diag.workdirRel');
         }
         break;
       case 'EXPOSE':
@@ -129,37 +149,37 @@ export function validate(text, options = {}) {
           const m = token.match(/^(\d+)(?:-(\d+))?(?:\/(\w+))?$/);
           const from = m && Number(m[1]);
           const to = m && Number(m[2] ?? m[1]);
-          if (!m || from < 1 || to > 65535 || from > to) error(line, `포트가 잘못되었습니다: "${token}" (1-65535)`, 'port');
-          else if (m[3] && !['tcp', 'udp', 'sctp'].includes(m[3].toLowerCase())) error(line, `프로토콜은 tcp, udp, sctp 중 하나여야 합니다: "${token}"`, 'port');
+          if (!m || from < 1 || to > 65535 || from > to) error(line, 'port', 'diag.port', { value: token });
+          else if (m[3] && !['tcp', 'udp', 'sctp'].includes(m[3].toLowerCase())) error(line, 'port', 'diag.proto', { value: token });
         }
         break;
       case 'CMD':
       case 'ENTRYPOINT': {
         const exec = parseExecForm(args);
-        if (exec.form === 'invalid') warn(line, `${keyword}: ${exec.reason} 지금은 셸 명령으로 해석됩니다.`, 'json');
-        else if (exec.form === 'shell') info(line, `${keyword} 는 exec 형식(["실행파일", "인자"])을 권장합니다. 셸 형식은 종료 신호가 앱에 전달되지 않을 수 있습니다.`, 'shell-form');
+        if (exec.form === 'invalid') warn(line, 'json', 'diag.jsonShell', { kw: keyword, reason: t(exec.reason) });
+        else if (exec.form === 'shell') info(line, 'shell-form', 'diag.shellForm', { kw: keyword });
         break;
       }
       case 'SHELL': {
         const exec = parseExecForm(args);
-        if (exec.form !== 'exec' || exec.value.length === 0) error(line, 'SHELL 은 JSON 배열 형식이어야 합니다.', 'json');
+        if (exec.form !== 'exec' || exec.value.length === 0) error(line, 'json', 'diag.shellJson');
         break;
       }
       case 'VOLUME': {
         const exec = parseExecForm(args);
-        if (exec.form === 'invalid') error(line, `VOLUME: ${exec.reason}`, 'json');
+        if (exec.form === 'invalid') error(line, 'json', 'diag.jsonError', { kw: 'VOLUME', reason: t(exec.reason) });
         break;
       }
       case 'STOPSIGNAL':
-        if (!args.includes('$') && !SIGNALS.test(args)) error(line, `알 수 없는 신호입니다: ${args}`, 'signal');
+        if (!args.includes('$') && !SIGNALS.test(args)) error(line, 'signal', 'diag.signal', { value: args });
         break;
       case 'HEALTHCHECK': {
         if (/^NONE$/i.test(rest)) break;
-        if (!/^CMD(\s+|$)/i.test(rest)) error(line, 'HEALTHCHECK 는 "[옵션] CMD 명령" 또는 "NONE" 이어야 합니다.', 'healthcheck');
-        else if (rest.replace(/^CMD\s*/i, '') === '') error(line, 'HEALTHCHECK CMD 뒤에 명령이 없습니다.', 'healthcheck');
+        if (!/^CMD(\s+|$)/i.test(rest)) error(line, 'healthcheck', 'diag.healthForm');
+        else if (rest.replace(/^CMD\s*/i, '') === '') error(line, 'healthcheck', 'diag.healthCmd');
         for (const f of flags) {
           if (f.name === 'retries' ? !/^\d+$/.test(f.value ?? '') : !/^(\d+(\.\d+)?(ms|s|m|h))+$|^0$/.test(f.value ?? '')) {
-            error(line, `--${f.name} 값이 잘못되었습니다: ${f.value}`, 'healthcheck');
+            error(line, 'healthcheck', 'diag.healthFlag', { flag: f.name, value: f.value });
           }
         }
         break;
@@ -167,53 +187,55 @@ export function validate(text, options = {}) {
       case 'COPY':
       case 'ADD': {
         const exec = parseExecForm(rest);
-        if (exec.form === 'invalid') { error(line, `${keyword}: ${exec.reason}`, 'json'); break; }
+        if (exec.form === 'invalid') { error(line, 'json', 'diag.jsonError', { kw: keyword, reason: t(exec.reason) }); break; }
         const { tokens, unterminated } = tokenize(rest, parsed.escape);
-        if (unterminated) error(line, '따옴표가 닫히지 않았습니다.', 'quote');
+        if (unterminated) error(line, 'quote', 'diag.quote');
         const parts = exec.form === 'exec' ? exec.value : tokens.map((t) => t.value);
-        if (parts.length < 2) { error(line, `${keyword} 에는 원본과 대상이 모두 필요합니다.`, 'copy-args'); break; }
+        if (parts.length < 2) { error(line, 'copy-args', 'diag.copyArgs', { kw: keyword }); break; }
         const sources = parts.slice(0, -1);
         const dest = parts.at(-1);
-        if ((sources.length > 1 || sources.some((s) => /[*?]/.test(s))) && !dest.endsWith('/') && dest !== '.') {
-          if (sources.length > 1) error(line, '원본이 여러 개면 대상은 "/" 로 끝나야 합니다.', 'copy-dest');
-          else warn(line, '와일드카드가 여러 파일에 일치하면 대상이 "/" 로 끝나야 합니다.', 'copy-dest');
+        if ((sources.length > 1 || sources.some((s) => /[*?]/.test(s))) && !/[/\\]$/.test(dest) && dest !== '.') {
+          if (sources.length > 1) error(line, 'copy-dest', 'diag.copyDestMany');
+          else warn(line, 'copy-dest', 'diag.copyDestGlob');
         }
         const from = flags.find((f) => f.name === 'from')?.value;
         if (from === undefined && sources.some((s) => s === '..' || s.startsWith('../'))) {
-          error(line, '빌드 컨텍스트 바깥(../)의 파일은 복사할 수 없습니다.', 'context');
+          error(line, 'context', 'diag.context');
         }
         const chown = flags.find((f) => f.name === 'chown')?.value;
         if (chown !== undefined) {
           const problem = checkUserSpec(chown ?? '');
-          if (problem) error(line, `--chown: ${problem}`, 'user');
+          if (problem) error(line, 'user', 'diag.chown', { problem: userProblem(problem) });
         }
         const chmod = flags.find((f) => f.name === 'chmod')?.value;
         if (chmod && !chmod.includes('$') && !/^[0-7]{3,4}$|^[ugoa]*[+=-][rwxXst]+(,[ugoa]*[+=-][rwxXst]+)*$/.test(chmod)) {
-          error(line, `--chmod 값이 잘못되었습니다: ${chmod}`, 'chmod');
+          error(line, 'chmod', 'diag.chmod', { value: chmod });
         }
         if (keyword === 'ADD' && sources.every((s) => !/^(https?:\/\/|git@)|\.(tar|tgz|tar\.\w+)$|\.git(#|$)|^<</.test(s))) {
-          info(line, '단순 파일 복사에는 ADD 대신 COPY 를 권장합니다.', 'add');
+          info(line, 'add', 'diag.addCopy');
         }
         break;
       }
       case 'RUN': {
         const body = [rest, ...ins.heredocs.flatMap((d) => d.lines)].join('\n');
-        if (parseExecForm(rest).form === 'invalid') warn(line, `RUN: ${parseExecForm(rest).reason}`, 'json');
+        const exec = parseExecForm(rest);
+        if (exec.form === 'invalid') warn(line, 'json', 'diag.jsonShell', { kw: 'RUN', reason: t(exec.reason) });
+        if (windows) break;
         if (/apt-get\s+(?:-\S+\s+)*install\b/.test(body)) {
-          if (!/apt-get[^;&|\n]*\s(-\w*y\w*|--yes|--assume-yes|-qq)\b/.test(body)) warn(line, 'apt-get install 에 -y 가 없으면 빌드가 중단됩니다.', 'apt-yes');
-          if (!/apt-get[^;&|\n]*\bupdate\b/.test(body)) warn(line, 'apt-get update 를 같은 RUN 에서 실행하세요. 캐시 때문에 설치가 실패할 수 있습니다.', 'apt-update');
-          if (!body.includes('/var/lib/apt/lists')) info(line, '설치 후 rm -rf /var/lib/apt/lists/* 로 이미지 크기를 줄일 수 있습니다.', 'apt-clean');
+          if (!/apt-get[^;&|\n]*\s(-\w*y\w*|--yes|--assume-yes|-qq)\b/.test(body)) warn(line, 'apt-yes', 'diag.aptYes');
+          if (!/apt-get[^;&|\n]*\bupdate\b/.test(body)) warn(line, 'apt-update', 'diag.aptUpdate');
+          if (!body.includes('/var/lib/apt/lists')) info(line, 'apt-clean', 'diag.aptClean');
         }
-        if (/apk\s+add\b/.test(body) && !/--no-cache|\/var\/cache\/apk/.test(body)) info(line, 'apk add 에 --no-cache 를 권장합니다.', 'apk');
-        if (/(^|&&|;|\|)\s*sudo\s/.test(body)) warn(line, 'sudo 는 대개 필요 없습니다. USER 로 권한을 전환하세요.', 'sudo');
-        if (/^cd\s+[^;&|]+$/.test(rest)) warn(line, 'RUN cd 는 다음 지시어에 유지되지 않습니다. WORKDIR 를 쓰세요.', 'cd');
+        if (/apk\s+add\b/.test(body) && !/--no-cache|\/var\/cache\/apk/.test(body)) info(line, 'apk', 'diag.apk');
+        if (/(^|&&|;|\|)\s*sudo\s/.test(body)) warn(line, 'sudo', 'diag.sudo');
+        if (/^cd\s+[^;&|]+$/.test(rest)) warn(line, 'cd', 'diag.cd');
         break;
       }
       case 'ONBUILD': {
         if (onbuild) break;
         const [, kw, tail = ''] = args.match(/^(\S+)\s*([\s\S]*)$/);
         const upperKw = kw.toUpperCase();
-        if (['ONBUILD', 'FROM', 'MAINTAINER'].includes(upperKw)) error(line, `ONBUILD 뒤에 ${upperKw} 는 올 수 없습니다.`, 'onbuild');
+        if (['ONBUILD', 'FROM', 'MAINTAINER'].includes(upperKw)) error(line, 'onbuild', 'diag.onbuild', { kw: upperKw });
         else checkInstruction({ ...ins, keyword: upperKw, rawKeyword: kw, args: tail.trim(), heredocs: [] }, true);
         break;
       }
@@ -228,30 +250,30 @@ export function validate(text, options = {}) {
     const result = sim.stages[stage.index];
     if (stage.from.args === '') continue;
     const unknownFlags = stage.flags.filter((f) => !f.startsWith('--platform='));
-    if (unknownFlags.length) error(line, `FROM 에서 지원하지 않는 옵션입니다: ${unknownFlags.join(' ')}`, 'flag');
+    if (unknownFlags.length) error(line, 'flag', 'diag.fromFlags', { flags: unknownFlags.join(' ') });
     if (stage.malformed || !stage.image) {
-      error(line, 'FROM 형식은 "FROM [--platform=…] 이미지[:태그] [AS 이름]" 입니다.', 'from-syntax');
+      error(line, 'from-syntax', 'diag.fromSyntax');
     }
     if (stage.name) {
       const lower = stage.name.toLowerCase();
-      if (!/^[a-z][a-z0-9_.-]*$/i.test(stage.name)) error(line, `스테이지 이름이 잘못되었습니다: "${stage.name}" (영문자로 시작)`, 'stage-name');
-      if (stage.name !== lower) warn(line, `스테이지 이름은 소문자를 권장합니다: "${stage.name}"`, 'stage-name');
-      if (names.has(lower)) error(line, `스테이지 이름 "${stage.name}" 이 중복됩니다 (${names.get(lower)}번 줄).`, 'stage-dup');
+      if (!/^[a-z][a-z0-9_.-]*$/i.test(stage.name)) error(line, 'stage-name', 'diag.stageName', { name: stage.name });
+      if (stage.name !== lower) warn(line, 'stage-name', 'diag.stageLower', { name: stage.name });
+      if (names.has(lower)) error(line, 'stage-dup', 'diag.stageDup', { name: stage.name, line: names.get(lower) });
       names.set(lower, line);
     }
 
     const baseRef = result.baseRef;
     const missing = sim.undefinedVars.filter((v) => v.inFrom && v.stage === stage.index);
-    for (const v of missing) error(line, `FROM 의 \${${v.name}} 값이 없습니다. 첫 FROM 앞에 ARG ${v.name}=기본값 을 선언하세요.`, 'from-var');
+    for (const v of missing) error(line, 'from-var', 'diag.fromVar', { name: v.name });
     if (missing.length === 0 && result.parentIndex === null && baseRef !== 'scratch' && stage.image) {
       const later = stages.slice(stage.index).find((s) => s.name?.toLowerCase() === baseRef.toLowerCase());
-      if (baseRef === '') error(line, 'FROM 의 이미지 값이 비어 있습니다.', 'from-empty');
-      else if (later) error(line, `"${baseRef}" 는 아직 정의되지 않은 스테이지입니다. 앞선 스테이지만 참조할 수 있습니다.`, 'stage-order');
+      if (baseRef === '') error(line, 'from-empty', 'diag.fromEmpty');
+      else if (later) error(line, 'stage-order', 'diag.stageLater', { name: baseRef });
       else {
         const ref = parseImageRef(baseRef);
-        if (!ref.ok) error(line, `FROM 이미지: ${ref.error}`, 'from-ref');
+        if (!ref.ok) error(line, 'from-ref', 'diag.fromRef', { error: t(ref.key, ref.params) });
         else if (!ref.digest && ref.tag === 'latest') {
-          warn(line, ref.explicitTag ? 'latest 태그는 빌드할 때마다 내용이 달라질 수 있습니다. 버전을 고정하세요.' : '태그가 없으면 latest 가 사용됩니다. 버전을 고정하세요.', 'latest');
+          warn(line, 'latest', ref.explicitTag ? 'diag.latestExplicit' : 'diag.latestImplicit');
         }
       }
     }
@@ -266,37 +288,38 @@ export function validate(text, options = {}) {
       });
       for (const ref of refs) {
         if (ref.includes('$')) {
-          if (ins.keyword === 'COPY') error(ins.startLine, 'COPY --from 에는 변수를 쓸 수 없습니다.', 'copy-from');
+          if (ins.keyword === 'COPY') error(ins.startLine, 'copy-from', 'diag.copyVar');
           continue;
         }
         if (findStage(stages, ref, stage.index)) continue;
         const self = ref.toLowerCase() === stage.name?.toLowerCase() || ref === String(stage.index);
-        if (self) error(ins.startLine, `자기 자신 스테이지("${ref}")는 참조할 수 없습니다.`, 'copy-from');
-        else if (findStage(stages, ref)) error(ins.startLine, `"${ref}" 는 뒤에 정의된 스테이지입니다.`, 'stage-order');
-        else if (/^\d+$/.test(ref)) error(ins.startLine, `스테이지 번호 ${ref} 가 없습니다.`, 'copy-from');
-        else if (!parseImageRef(ref).ok) error(ins.startLine, `--from 값이 잘못되었습니다: "${ref}"`, 'copy-from');
-        else info(ins.startLine, `"${ref}" 스테이지가 없어 외부 이미지로 간주합니다. 오타가 아닌지 확인하세요.`, 'external-from');
+        if (self) error(ins.startLine, 'copy-from', 'diag.selfRef', { ref });
+        else if (findStage(stages, ref)) error(ins.startLine, 'stage-order', 'diag.stageLater', { name: ref });
+        else if (/^\d+$/.test(ref)) error(ins.startLine, 'copy-from', 'diag.noStageNumber', { ref });
+        else if (!parseImageRef(ref).ok) error(ins.startLine, 'copy-from', 'diag.copyFromBad', { ref });
+        else info(ins.startLine, 'external-from', 'diag.external', { ref });
       }
     }
 
     for (const kw of ['CMD', 'ENTRYPOINT', 'HEALTHCHECK']) {
       const list = stage.instructions.filter((i) => i.keyword === kw);
-      for (const ins of list.slice(0, -1)) warn(ins.startLine, `한 스테이지에서 ${kw} 는 마지막 것만 적용됩니다.`, 'override');
+      for (const ins of list.slice(0, -1)) warn(ins.startLine, 'override', 'diag.override', { kw });
     }
   }
 
   for (const v of sim.undefinedVars) {
     if (v.inFrom) continue;
     const isGlobal = sim.globalArgs.some((a) => a.key === v.name);
-    if (isGlobal) warn(v.line, `\${${v.name}} 는 전역 ARG 입니다. 스테이지 안에서 "ARG ${v.name}" 을 다시 선언해야 값이 전달됩니다.`, 'global-arg');
-    else if (AUTOMATIC_ARGS.includes(v.name)) warn(v.line, `\${${v.name}} 를 쓰려면 "ARG ${v.name}" 선언이 필요합니다.`, 'auto-arg');
-    else if (v.baseKnown) warn(v.line, `정의되지 않은 변수입니다: \${${v.name}}`, 'undefined-var');
-    else info(v.line, `\${${v.name}} 를 이 파일에서 찾을 수 없습니다. 베이스 이미지에 없다면 빈 값이 됩니다. (FROM 확인 후 다시 판단)`, 'undefined-var');
+    const params = { name: v.name };
+    if (isGlobal) warn(v.line, 'global-arg', 'diag.globalArg', params);
+    else if (AUTOMATIC_ARGS.includes(v.name)) warn(v.line, 'auto-arg', 'diag.autoArg', params);
+    else if (v.baseKnown) warn(v.line, 'undefined-var', 'diag.undefinedVar', params);
+    else info(v.line, 'undefined-var', 'diag.undefinedMaybe', params);
   }
 
   sim.stages.forEach((s) => {
     if (!sim.used.has(s.index) && s.index < sim.targetIndex) {
-      warn(stages[s.index].from.startLine, `스테이지 ${s.name ?? s.index} 는 최종 결과에 쓰이지 않습니다.`, 'unused-stage');
+      warn(stages[s.index].from.startLine, 'unused-stage', 'diag.unusedStage', { name: s.name ?? s.index });
     }
   });
 
@@ -305,16 +328,18 @@ export function validate(text, options = {}) {
     const line = stages[final.index].from.startLine;
     const user = final.state.user;
     const userLine = findUserLine(final.index);
-    const root = user !== null && /^(root|0)(:|$)/.test(user);
-    if (root) warn(userLine ?? line, '최종 이미지가 root 로 실행됩니다. 일반 사용자를 쓰세요.', 'root');
+    if (final.os === 'windows') {
+      if (/^containeradministrator$/i.test(user ?? '')) warn(userLine ?? line, 'root', 'diag.winAdmin');
+    } else if (user !== null && /^(root|0)(:|$)/.test(user)) warn(userLine ?? line, 'root', 'diag.rootUser');
     else if (user === null && final.baseRef !== 'scratch') {
-      if (final.baseKnown) warn(line, '최종 이미지가 root 로 실행됩니다. USER 를 추가하세요.', 'root');
-      else info(line, 'USER 가 없습니다. 베이스 이미지가 따로 지정하지 않았다면 root 로 실행됩니다.', 'root');
+      if (final.baseKnown) warn(line, 'root', 'diag.rootNoUser');
+      else info(line, 'root', 'diag.rootMaybe');
     }
   }
 
-  // 이름으로 지정한 USER 가 실제로 만들어지는지 확인
+  // Check that a USER given by name is actually created
   for (const stage of stages) {
+    if (sim.stages[stage.index].os === 'windows') continue;
     for (const ins of stage.instructions.filter((i) => i.keyword === 'USER')) {
       const name = ins.args.split(':')[0];
       if (!/^[a-zA-Z_][\w.-]*$/.test(name) || ['root', 'nobody', 'node', 'www-data', 'nonroot', 'daemon'].includes(name)) continue;
@@ -326,7 +351,7 @@ export function validate(text, options = {}) {
           && createsUser([i.args, ...i.heredocs.flatMap((d) => d.lines)].join(' '), name));
         current = current.parentIndex === null ? null : sim.stages[current.parentIndex];
       }
-      if (!created) info(ins.startLine, `사용자 "${name}" 를 만드는 명령(useradd/adduser)이 보이지 않습니다. 베이스 이미지에 없으면 실행 시 실패합니다.`, 'user-missing');
+      if (!created) info(ins.startLine, 'user-missing', 'diag.userMissing', { name });
     }
   }
 

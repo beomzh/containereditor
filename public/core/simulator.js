@@ -1,9 +1,10 @@
-// 빌드를 실행하지 않고 지시어를 차례로 해석해 스테이지별 최종 상태를 계산한다.
+// Interprets instructions without building and computes the final state of every stage.
 
 import { parse, splitStages, parsePairs, splitFlags, parseExecForm, tokenize } from './parser.js';
 import { expand } from './vars.js';
+import { stageOs } from './platforms.js';
 
-// 빌더가 선언 없이 제공하는 ARG
+// ARGs the builder provides without declaration
 const PREDEFINED = [
   'HTTP_PROXY', 'HTTPS_PROXY', 'FTP_PROXY', 'NO_PROXY', 'ALL_PROXY',
   'http_proxy', 'https_proxy', 'ftp_proxy', 'no_proxy', 'all_proxy',
@@ -23,7 +24,8 @@ function automaticValues(platform) {
   };
 }
 
-export function joinPath(base, path) {
+export function joinPath(base, path, windows = false) {
+  if (windows) return joinWindowsPath(base, path);
   const full = path.startsWith('/') ? path : `${base.replace(/\/$/, '')}/${path}`;
   const out = [];
   for (const part of full.split('/')) {
@@ -32,6 +34,16 @@ export function joinPath(base, path) {
     else out.push(part);
   }
   return `/${out.join('/')}${path.endsWith('/') && out.length ? '/' : ''}`;
+}
+
+function joinWindowsPath(base, path) {
+  const drive = (p) => p.match(/^[A-Za-z]:/)?.[0] ?? null;
+  const slashed = path.replace(/\\/g, '/');
+  const letter = drive(slashed) ?? drive(base) ?? 'C:';
+  const rest = slashed.replace(/^[A-Za-z]:/, '');
+  const parent = base.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+  const joined = joinPath(parent || '/', rest || (drive(slashed) ? '/' : '.'));
+  return `${letter}${joined.replace(/\//g, '\\')}`;
 }
 
 function emptyState() {
@@ -52,7 +64,7 @@ function inherit(parent) {
   };
 }
 
-// 레지스트리에서 읽어온 이미지 config 를 시작 상태로 바꾼다.
+// Turns an image config read from the registry into the initial state.
 function fromImageConfig(config) {
   const s = emptyState();
   for (const entry of config.Env ?? []) {
@@ -126,15 +138,20 @@ export function simulate(text, options = {}) {
       baseKnown = false;
     }
 
-    // ONBUILD 트리거는 이 이미지를 FROM 으로 쓰는 쪽에서 실행된다.
+    // ONBUILD triggers run in images that use this one as FROM.
+    const stagePlatform = stage.platform ? expand(stage.platform, globalScope) : null;
+    const os = stageOs({ platform: stagePlatform, baseRef, parentOs: parentResult?.os, target: platform });
+    const windows = os === 'windows';
     const deps = new Set(parentResult ? [parentResult.index] : []);
     const externalFrom = [];
     let cmdSetHere = false;
 
     const lookup = () => {
       const scope = new Map();
-      if (!state.env.has('PATH')) scope.set('PATH', DEFAULT_PATH);
-      scope.set('HOME', '/root');
+      if (!windows) {
+        if (!state.env.has('PATH')) scope.set('PATH', DEFAULT_PATH);
+        scope.set('HOME', '/root');
+      }
       for (const name of PREDEFINED) scope.set(name, buildArgs[name] ?? '');
       for (const [k, v] of state.args) scope.set(k, v);
       for (const [k, v] of state.env) scope.set(k, v);
@@ -173,7 +190,7 @@ export function simulate(text, options = {}) {
           break;
         case 'ENV': {
           const { pairs } = parsePairs(ins, parsed.escape);
-          // 한 ENV 안의 값들은 지시어 실행 전 상태로 치환된다.
+          // Values within one ENV expand against the state before the instruction.
           const scope = lookup();
           const next = pairs.map(({ key, value }) => [key, sub(value ?? '', ins, scope)]);
           for (const [k, v] of next) state.env.set(k, v);
@@ -191,7 +208,7 @@ export function simulate(text, options = {}) {
           state.user = sub(ins.args, ins) || null;
           break;
         case 'WORKDIR':
-          state.workdir = joinPath(state.workdir ?? '/', sub(ins.args, ins));
+          state.workdir = joinPath(state.workdir ?? (windows ? 'C:\\' : '/'), sub(ins.args, ins), windows);
           layer(ins, `mkdir ${state.workdir}`);
           break;
         case 'EXPOSE':
@@ -222,19 +239,20 @@ export function simulate(text, options = {}) {
           const parts = exec.form === 'exec' ? exec.value : tokenize(rest, parsed.escape).tokens.map((t) => t.value);
           if (parts.length < 2) break;
           const sources = parts.slice(0, -1).map((p) => sub(p, ins));
-          const dest = joinPath(state.workdir ?? '/', sub(parts.at(-1), ins) === '.' ? './' : sub(parts.at(-1), ins));
+          const rawDest = sub(parts.at(-1), ins);
+          const dest = joinPath(state.workdir ?? (windows ? 'C:\\' : '/'), rawDest === '.' ? './' : rawDest, windows);
           const fromFlag = flags.find((f) => f.name === 'from')?.value ?? null;
-          let origin = '빌드 컨텍스트';
+          let origin = { type: 'context' };
           if (fromFlag !== null) {
             const dep = addDep(fromFlag);
-            origin = dep ? `스테이지 ${dep.name ?? dep.index}` : `이미지 ${fromFlag}`;
+            origin = dep ? { type: 'stage', name: dep.name ?? `#${dep.index}` } : { type: 'image', name: fromFlag };
           }
           const chown = flags.find((f) => f.name === 'chown')?.value ?? null;
           const chmod = flags.find((f) => f.name === 'chmod')?.value ?? null;
           for (const src of sources) {
             state.files.push({ src: src.startsWith('<<') ? '(heredoc)' : src, dest, origin, chown, chmod, line: ins.startLine, stage: stage.index });
           }
-          layer(ins, `${origin}: ${sources.join(', ')} → ${dest}`);
+          layer(ins, `${origin.name ? `${origin.name}: ` : ''}${sources.join(', ')} → ${dest}`);
           break;
         }
         case 'CMD':
@@ -243,7 +261,7 @@ export function simulate(text, options = {}) {
           break;
         case 'ENTRYPOINT':
           state.entrypoint = toCommand(ins.args);
-          // ENTRYPOINT 를 새로 지정하면 부모에게 물려받은 CMD 는 초기화된다.
+          // Setting ENTRYPOINT resets a CMD inherited from the parent.
           if (!cmdSetHere) state.cmd = null;
           break;
         case 'HEALTHCHECK':
@@ -266,7 +284,7 @@ export function simulate(text, options = {}) {
     }
 
     results.push({
-      index: stage.index, name: stage.name, platform: stage.platform,
+      index: stage.index, name: stage.name, platform: stagePlatform, rawPlatform: stage.platform, os,
       image: stage.image, baseRef, baseKnown, state,
       parentIndex: parentResult ? parentResult.index : null,
       deps: [...deps].sort((a, b) => a - b), externalFrom,
@@ -295,9 +313,9 @@ function toCommand(args) {
   return exec.form === 'exec' ? { form: 'exec', value: exec.value } : { form: 'shell', value: args };
 }
 
-// 컨테이너를 인자 없이 실행했을 때의 최종 프로세스(argv)
-export function effectiveCommand(state) {
-  const shell = state.shell ?? ['/bin/sh', '-c'];
+// Final process (argv) when the container runs without arguments
+export function effectiveCommand(state, os = 'linux') {
+  const shell = state.shell ?? (os === 'windows' ? ['cmd', '/S', '/C'] : ['/bin/sh', '-c']);
   const argv = (c) => (c === null ? [] : c.form === 'exec' ? c.value : [...shell, c.value]);
   if (state.entrypoint?.form === 'shell') return argv(state.entrypoint);
   return [...argv(state.entrypoint), ...argv(state.cmd)];

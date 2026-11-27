@@ -1,42 +1,45 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dockerfile 에디터</title>
+  <title>Dockerfile Editor</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
-    <strong>Dockerfile 에디터</strong>
-    <input id="filename" value="Dockerfile" aria-label="파일 이름" spellcheck="false">
-    <button id="open">열기</button>
-    <button id="save">저장</button>
-    <button id="undo">되돌리기</button>
-    <button id="redo">다시 실행</button>
-    <select id="template" aria-label="템플릿"><option value="">템플릿…</option></select>
+    <strong data-i18n="ui.title">Dockerfile Editor</strong>
+    <select id="template"></select>
+    <button id="open" data-i18n="ui.open">Open</button>
+    <button id="save" data-i18n="ui.save">Save</button>
+    <input id="filename" value="Dockerfile" spellcheck="false" data-i18n-label="ui.fileName">
+    <button id="undo" data-i18n="ui.undo">Undo</button>
+    <button id="redo" data-i18n="ui.redo">Redo</button>
     <span class="spacer"></span>
-    <label>플랫폼
+    <label><span data-i18n="ui.platform">Platform</span>
       <select id="platform">
         <option>linux/amd64</option>
         <option>linux/arm64</option>
         <option>linux/arm/v7</option>
+        <option>windows/amd64</option>
+        <option>windows/arm64</option>
       </select>
     </label>
-    <button id="check" class="primary">FROM 확인</button>
+    <button id="check" class="primary" data-i18n="ui.check">① Check images</button>
+    <select id="language" data-i18n-label="ui.language"></select>
     <input id="file" type="file" hidden>
   </header>
 
   <main>
-    <section id="left" aria-label="스테이지와 설정"></section>
+    <section id="left"></section>
 
-    <section id="center" aria-label="편집기">
+    <section id="center">
       <div id="editor">
         <pre id="gutter" aria-hidden="true"></pre>
         <div id="code">
           <pre id="highlight" aria-hidden="true"></pre>
-          <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Dockerfile 내용"></textarea>
+          <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" data-i18n-label="ui.content"></textarea>
         </div>
       </div>
       <div id="problems">
@@ -45,7 +48,16 @@
       </div>
     </section>
 
-    <section id="right" aria-label="결과 미리보기"></section>
+    <section id="side">
+      <nav id="tabs" role="tablist">
+        <button role="tab" data-tab="preview" data-i18n="ui.tabPreview">Result</button>
+        <button role="tab" data-tab="compat" data-i18n="ui.tabCompat">Compatibility</button>
+        <button role="tab" data-tab="build" data-i18n="ui.tabBuild">② Build</button>
+      </nav>
+      <div id="preview" class="panel" role="tabpanel"></div>
+      <div id="compat" class="panel" role="tabpanel" hidden></div>
+      <div id="build" class="panel" role="tabpanel" hidden></div>
+    </section>
   </main>
 
   <div id="toast" role="alert" hidden></div>

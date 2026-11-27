@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux and Windows, each on amd64 and arm64
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+      - name: CLI smoke test
+        run: |
+          node bin/dockereditor.js new node -o Dockerfile.smoke
+          node bin/dockereditor.js validate Dockerfile.smoke --strict
+
+  build-linux:
+    name: real build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Build all three output types
+        run: |
+          mkdir smoke && cd smoke
+          echo hello > a.txt
+          printf 'FROM alpine:3.22\nCOPY a.txt /a.txt\nUSER 1000\n' > Dockerfile
+          node ../bin/dockereditor.js check
+          node ../bin/dockereditor.js build --tag smoke:ci
+          node ../bin/dockereditor.js build --tag smoke:ci --output archive --dest out/image.tar
+          node ../bin/dockereditor.js build --output folder --dest rootfs
+          test -s out/image.tar
+          grep -qx hello rootfs/a.txt
+
+  build-windows:
+    # Windows arm64 runners have no Docker, so real Windows builds run on amd64 only.
+    name: real build (windows amd64)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Build an image and an archive
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item -ItemType Directory smoke | Out-Null
+          Set-Location smoke
+          Set-Content a.txt hello
+          Set-Content Dockerfile "# escape=```nFROM mcr.microsoft.com/windows/nanoserver:ltsc2025`nCOPY a.txt C:\a.txt`nUSER ContainerUser"
+          node ..\bin\dockereditor.js check --platform windows/amd64
+          node ..\bin\dockereditor.js build --tag smoke:ci --platform windows/amd64
+          node ..\bin\dockereditor.js build --tag smoke:ci --output archive --dest out\image.tar
+          if (-not (Test-Path out\image.tar)) { throw 'archive missing' }
