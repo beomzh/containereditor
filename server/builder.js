@@ -19,6 +19,7 @@ const ARCH = { x86_64: 'amd64', aarch64: 'arm64', armv7l: 'arm' };
 /** Finds a usable engine and what kind of containers its daemon runs. */
 export async function detectEngine(preferred, exec = run) {
   if (preferred && !ENGINES.includes(preferred)) throw new LocalizedError('build.badEngine');
+  const reasons = [];
   for (const engine of preferred ? [preferred] : ENGINES) {
     try {
       const format = engine === 'docker'
@@ -30,9 +31,10 @@ export async function detectEngine(preferred, exec = run) {
       const vm = /docker desktop/i.test(operatingSystem ?? '') || (process.platform !== 'linux' && os === 'linux');
       return { engine, version, os, arch: ARCH[arch] ?? arch, rootDir, vm };
     } catch (e) {
-      log('debug', `${engine} not usable: ${e.code ?? e.message}`);
+      reasons.push(`${engine}: ${String(e.stderr || e.message).trim().slice(0, 300)}`);
     }
   }
+  log('warn', `no usable engine. ${reasons.join(' | ')}`);
   throw new LocalizedError('build.noEngine');
 }
 
