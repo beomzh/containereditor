@@ -72,6 +72,7 @@ export async function planBuild(request, daemon) {
   const {
     context = '.', output = 'image', dest = '', tag = 'myimage:latest', platform = '',
     target = '', buildArgs = {}, workspace = null, force = false, cwd = process.cwd(),
+    container = process.env.DOCKEREDITOR_CONTAINER === '1',
   } = request;
   const bad = (field, value) => new LocalizedError('build.badValue', { field, value });
   for (const [field, value] of Object.entries({ context, output, dest, tag, platform, target })) {
@@ -140,6 +141,7 @@ export async function planBuild(request, daemon) {
     ? { type: 'image', key: 'build.locImage', params: { engine, tag } }
     : { type: output, path: destPath, key: output === 'archive' ? 'build.locArchive' : 'build.locFolder', params: { engine, path: destPath } };
   if (output === 'image' && daemon.vm) warnings.push({ key: 'build.vm' });
+  if (output !== 'image' && container) warnings.push({ key: 'build.container' });
 
   // The classic builder cannot use a Dockerfile on another drive than the context, so it is piped in.
   return { engine, steps, stdin: classic, context: contextPath, output, tag, dest: destPath, location, warnings, storage: daemon.rootDir };

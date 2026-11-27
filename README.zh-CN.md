@@ -4,7 +4,51 @@
 
 编写和修改 **Dockerfile / Containerfile**，检查语法，预览最终镜像并执行构建。支持网页和命令行，不依赖第三方包。
 
-## 安装
+## 用 Docker 快速开始（无需 Node.js 或 npm）
+
+直接从 GitHub 构建一次镜像：
+
+```bash
+docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
+```
+
+在项目目录中运行，然后打开 http://localhost:4173 ：
+
+```bash
+docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+  -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor serve --lang zh
+```
+
+Windows PowerShell：
+
+```powershell
+docker run --rm -it --init -p 127.0.0.1:4173:4173 -v "${PWD}:/work" dockereditor serve --lang zh
+```
+
+用同一镜像执行命令行：
+
+```bash
+docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor validate --lang zh
+```
+
+如需在编辑器中构建，还要挂载 Docker 套接字，并打开输出的网址：
+
+```bash
+docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+  -v "$PWD:/work" --user "$(id -u):$(id -g)" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$(stat -c %g /var/run/docker.sock)" \
+  dockereditor serve --allow-build --lang zh
+```
+
+> **Docker 套接字可以完全控制宿主机。** 仅在需要构建时挂载，并且只构建可信文件。
+
+- 请保留 `-p` 中的 `127.0.0.1:`，否则同一网络的其他人可以访问编辑器。
+- 结果路径显示为 `/work/...`，`/work` 即你挂载的目录。
+- 在 Docker Desktop（macOS、Windows）上请使用 `--group-add 0`；`folder` 输出在挂载目录上会失败，请改用 `--output archive`。
+- 此镜像只能构建 Linux 镜像。
+
+## 安装 (npm)
 
 需要 Node.js 22 或更高版本。构建还需要 Docker 或 Podman。
 
@@ -12,7 +56,7 @@
 npm install -g github:beomzh/dockereditor#v0.2.0
 ```
 
-## 快速开始
+## 用 npm 快速开始
 
 ```bash
 dockereditor new node --lang zh

@@ -1,4 +1,4 @@
-// Local web server: static files, image check and (opt-in) builds. Binds to 127.0.0.1 only.
+// Local web server: static files, image check and (opt-in) builds. Binds to 127.0.0.1, except inside a container.
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -160,13 +160,16 @@ export function createApp({
 }
 
 /** Starts the server and returns the URL to open. */
-export function serve({ port = 4173, ...options } = {}) {
+export function serve({ port = 4173, container = process.env.DOCKEREDITOR_CONTAINER === '1', ...options } = {}) {
   setVerbose(true);
+  // A published port reaches a container on its external interface. Outside a container, loopback only.
+  const host = container ? '0.0.0.0' : '127.0.0.1';
+  if (container) log('warn', 'listening on all container interfaces; publish the port as -p 127.0.0.1:4173:4173');
   const token = randomBytes(24).toString('hex');
   const server = createApp({ ...options, token });
   return new Promise((done, failed) => {
     server.once('error', failed);
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, host, () => {
       const base = `http://localhost:${server.address().port}`;
       // The token travels in the fragment, which browsers never send to servers.
       done({ server, url: options.allowBuild ? `${base}/#token=${token}` : base });

@@ -7,7 +7,51 @@ English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本�
 
 Write and edit a **Dockerfile / Containerfile**, check it, see what the image will look like, and build it — in the browser or from the command line. No third-party packages.
 
-## Install
+## Quick start with Docker (no Node.js or npm)
+
+Build the image once, straight from GitHub:
+
+```bash
+docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
+```
+
+Run in your project folder, then open http://localhost:4173:
+
+```bash
+docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+  -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor
+```
+
+Windows PowerShell:
+
+```powershell
+docker run --rm -it --init -p 127.0.0.1:4173:4173 -v "${PWD}:/work" dockereditor
+```
+
+Command line, same image:
+
+```bash
+docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor validate
+```
+
+To build from the editor, also mount the Docker socket and open the URL it prints:
+
+```bash
+docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+  -v "$PWD:/work" --user "$(id -u):$(id -g)" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$(stat -c %g /var/run/docker.sock)" \
+  dockereditor serve --allow-build
+```
+
+> **The Docker socket gives full control of the host.** Mount it only if you want to build, and build only files you trust.
+
+- Keep `127.0.0.1:` in `-p`. Without it, others on your network can reach the editor.
+- Result paths are shown as `/work/...`; `/work` is the folder you mounted.
+- On Docker Desktop (macOS, Windows) use `--group-add 0`, and use `--output archive` instead of `folder`, which fails on its mounted folders.
+- The image builds Linux images only.
+
+## Install (npm)
 
 Needs Node.js 22 or later. Building also needs Docker or Podman.
 
@@ -25,7 +69,7 @@ git clone https://github.com/beomzh/dockereditor.git
 cd dockereditor && node bin/dockereditor.js serve
 ```
 
-## Quick start
+## Quick start with npm
 
 ```bash
 dockereditor new node

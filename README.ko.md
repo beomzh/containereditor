@@ -4,7 +4,51 @@
 
 **Dockerfile / Containerfile** 을 만들고 고치고, 검사하고, 결과 이미지를 미리 보고, 빌드합니다. 웹과 명령줄 모두 지원하며 외부 패키지를 쓰지 않습니다.
 
-## 설치
+## Docker 로 빠른 시작 (Node.js·npm 불필요)
+
+GitHub 에서 바로 이미지를 한 번 빌드합니다:
+
+```bash
+docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
+```
+
+프로젝트 폴더에서 실행하고 http://localhost:4173 을 엽니다:
+
+```bash
+docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+  -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor serve --lang ko
+```
+
+Windows PowerShell:
+
+```powershell
+docker run --rm -it --init -p 127.0.0.1:4173:4173 -v "${PWD}:/work" dockereditor serve --lang ko
+```
+
+같은 이미지로 명령줄 사용:
+
+```bash
+docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor validate --lang ko
+```
+
+에디터에서 빌드하려면 Docker 소켓도 마운트하고, 출력된 주소를 엽니다:
+
+```bash
+docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+  -v "$PWD:/work" --user "$(id -u):$(id -g)" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$(stat -c %g /var/run/docker.sock)" \
+  dockereditor serve --allow-build --lang ko
+```
+
+> **Docker 소켓은 호스트 전체를 제어할 수 있습니다.** 빌드가 필요할 때만 마운트하고, 신뢰하는 파일만 빌드하세요.
+
+- `-p` 의 `127.0.0.1:` 을 빼지 마세요. 빼면 같은 네트워크의 다른 사람이 접속할 수 있습니다.
+- 결과 경로는 `/work/...` 로 표시됩니다. `/work` 가 마운트한 폴더입니다.
+- Docker Desktop(macOS, Windows)에서는 `--group-add 0` 을 쓰고, `folder` 출력은 마운트 폴더에서 실패하므로 `--output archive` 를 쓰세요.
+- 이 이미지로는 Linux 이미지만 빌드합니다.
+
+## 설치 (npm)
 
 Node.js 22 이상이 필요합니다. 빌드에는 Docker 또는 Podman 이 필요합니다.
 
@@ -12,7 +56,7 @@ Node.js 22 이상이 필요합니다. 빌드에는 Docker 또는 Podman 이 필�
 npm install -g github:beomzh/dockereditor#v0.2.0
 ```
 
-## 빠른 시작
+## npm 으로 빠른 시작
 
 ```bash
 dockereditor new node --lang ko

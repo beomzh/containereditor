@@ -10,7 +10,7 @@ import { validate } from '../public/core/validator.js';
 import { compatibility, PLATFORMS } from '../public/core/platforms.js';
 import { TEMPLATES } from '../public/core/templates.js';
 import { planBuild, runBuild, commandLines } from '../server/builder.js';
-import { createApp } from '../server/server.js';
+import { createApp, serve } from '../server/server.js';
 import { main } from '../bin/cli.js';
 
 const daemon = { engine: 'docker', version: '1', os: 'linux', arch: 'amd64', rootDir: '/var/lib/docker', vm: false };
@@ -119,6 +119,18 @@ test('Windows daemon: no BuildKit options and no folder output', async (t) => {
   await runBuild(plan, 'FROM a\n', { onData() {}, spawnImpl, exec: async () => ({ stdout: 'sha256:a|1|windows/amd64\n' }) });
   assert.equal(args[args.indexOf('-f') + 1], '-');
   assert.equal(piped, 'FROM a\n');
+});
+
+test('inside a container the server listens externally and explains output paths', async (t) => {
+  const dir = await temp(t);
+  const request = { cwd: dir, output: 'folder', dest: 'out' };
+  assert.deepEqual((await planBuild({ ...request, container: true }, daemon)).warnings.map((w) => w.key), ['build.container']);
+  assert.deepEqual((await planBuild({ ...request, container: false }, daemon)).warnings, []);
+  for (const [container, address] of [[false, '127.0.0.1'], [true, '0.0.0.0']]) {
+    const { server } = await serve({ port: 0, container });
+    assert.equal(server.address().address, address);
+    server.close();
+  }
 });
 
 test('runBuild passes arguments without a shell and removes its temporary Dockerfile', async (t) => {

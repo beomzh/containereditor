@@ -300,7 +300,11 @@ export async function main(argv, io = {}) {
       const workspace = resolve(cwd, values.workspace ?? '.');
       if (!(await stat(workspace).catch(() => null))?.isDirectory()) throw new LocalizedError('build.noContext', { path: workspace });
       try {
-        const { url } = await serve({ port, allowBuild: values['allow-build'], workspace });
+        const { server, url } = await serve({ port, allowBuild: values['allow-build'], workspace });
+        // As PID 1 in a container, stop requests are ignored unless handled.
+        for (const signal of ['SIGINT', 'SIGTERM']) {
+          process.once(signal, () => { server.close(); server.closeAllConnections(); process.exit(0); });
+        }
         // The web editor opens in the language chosen with --lang.
         const link = new URL(url);
         if (lang !== 'en') link.searchParams.set('lang', lang);

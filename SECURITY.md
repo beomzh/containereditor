@@ -14,7 +14,7 @@ Only the latest minor release receives security fixes until 1.0.
 
 | Area | Behaviour |
 |---|---|
-| Network exposure | The web server listens on `127.0.0.1` only and rejects other `Host` names. There is no option to expose it. |
+| Network exposure | The web server listens on `127.0.0.1` and rejects other `Host` names. In the container image (`DOCKEREDITOR_CONTAINER=1`) it listens on all container interfaces; publish it as `-p 127.0.0.1:4173:4173`. |
 | Builds from the browser | Off unless started with `--allow-build`. Require a random token (passed in the URL fragment, sent as a custom header), reject other origins, accept JSON only. |
 | Paths | Browser builds keep the context and the destination inside `--workspace`, following symlinks. Existing files and non-empty folders are never overwritten. |
 | Commands | Docker/Podman are started without a shell. Your Dockerfile is written to a temporary file that is removed after the build. |
@@ -25,6 +25,8 @@ Only the latest minor release receives security fixes until 1.0.
 ## What it does not protect against
 
 - **A build runs the commands in the Dockerfile.** Build only files you trust.
+- Mounting `/var/run/docker.sock` into the container gives it full control of the host.
+- If the container port is published without `127.0.0.1:`, other machines can reach the editor and forge the `Host` name.
 - The workspace limit applies to the paths this tool chooses, not to what a build does inside the engine.
 - Hosts you add to `DOCKEREDITOR_REGISTRIES` are contacted for any file you check.
 - Anyone who has the printed URL with the token, and can reach your local port, can build in the workspace. Do not share it.
