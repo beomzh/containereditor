@@ -574,7 +574,8 @@ const buildPanel = createBuildPanel({
   current: () => ({
     content: source.value, platform: $('platform').value, filename: $('filename').value || 'Dockerfile',
     buildArgs: state.buildArgs,
-    target: state.sim && state.sim.targetIndex !== state.sim.stages.length - 1 ? state.sim.stages[state.sim.targetIndex]?.name ?? '' : '',
+    // An unnamed stage cannot be a --target; "#n" makes the builder say so instead of building the last stage.
+    target: state.sim && state.sim.targetIndex !== state.sim.stages.length - 1 ? state.sim.stages[state.sim.targetIndex]?.name ?? `#${state.sim.targetIndex}` : '',
   }),
 });
 

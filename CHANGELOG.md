@@ -26,6 +26,7 @@ Compared with 0.1.0: real builds, a command line, platform compatibility checks,
 
 ### Changed
 - The web UI has Result, Compatibility and Build tabs and numbered main steps.
+- Selecting an unnamed earlier stage in the Build tab now reports that it cannot be a target instead of building the last stage.
 
 ## [0.1.0] - 2026-11-27
 

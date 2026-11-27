@@ -44,9 +44,11 @@ export function createBuildPanel({ root, h, t, toast, current }) {
   };
 
   function cliCommand() {
-    const { filename } = current();
+    const { filename, target, buildArgs } = current();
     const quote = (v) => (/^[\w./:=-]+$/.test(v) ? v : `"${v.replace(/"/g, '\\"')}"`);
     return ['dockereditor build', quote(filename), `--platform ${current().platform}`, `--output ${state.output}`,
+      target ? `--target ${quote(target)}` : null,
+      ...Object.entries(buildArgs).map(([k, v]) => `--build-arg ${quote(`${k}=${v}`)}`),
       state.output === 'folder' ? null : `--tag ${quote(state.tag)}`,
       state.output === 'image' ? null : `--dest ${quote(state.dest)}`].filter(Boolean).join(' ');
   }
