@@ -15,6 +15,7 @@ Compared with 0.1.0: real builds, a command line, platform compatibility checks,
 ### Security
 - **Browser builds are opt-in** (`--allow-build`) and require a token, same origin, JSON requests and paths inside the workspace.
 - **Stricter response headers**: framing and referrers are blocked.
+- **Image checks contact only known public registries** (and token services). 0.1.0 contacted any host named in `FROM`. Add your own with `DOCKEREDITOR_REGISTRIES`.
 
 ### Added
 - **Real builds** with Docker or Podman: local image, image archive or files in a folder. The result location is shown before and after the build.

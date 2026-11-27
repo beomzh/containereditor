@@ -6,7 +6,7 @@ import { validate } from '../public/core/validator.js';
 import { parseImageRef } from '../public/core/imageref.js';
 import * as ops from '../public/core/editor-ops.js';
 import { TEMPLATES } from '../public/core/templates.js';
-import { createChecker } from '../server/registry.js';
+import { createChecker, allowedRegistry } from '../server/registry.js';
 
 const codes = (text, severity) => validate(text).filter((d) => !severity || d.severity === severity).map((d) => d.code);
 
@@ -143,9 +143,9 @@ test('registry check: token auth, config, 404, invalid name', async () => {
   const reply = (status, body, headers = {}) => new Response(body === null ? null : JSON.stringify(body), { status, headers });
   const fake = async (url, options = {}) => {
     const u = String(url);
-    if (u.startsWith('https://auth.example/token')) return reply(200, { token: 't' });
+    if (u.startsWith('https://auth.docker.io/token')) return reply(200, { token: 't' });
     if (!options.headers?.Authorization && u.includes('/v2/library/')) {
-      return reply(401, {}, { 'www-authenticate': 'Bearer realm="https://auth.example/token",service="s",scope="x"' });
+      return reply(401, {}, { 'www-authenticate': 'Bearer realm="https://auth.docker.io/token",service="s",scope="x"' });
     }
     if (u.endsWith('/manifests/nope')) return reply(404, null);
     if (u.includes('hub.docker.com')) return reply(200, { results: [{ name: '3.20' }] });
@@ -163,4 +163,24 @@ test('registry check: token auth, config, 404, invalid name', async () => {
   const missing = await check('alpine:nope');
   assert.deepEqual([missing.status, missing.suggestions], ['not_found', ['3.20']]);
   assert.equal((await check('Bad Name')).status, 'invalid');
+});
+
+test('only known or explicitly added registries are contacted', async () => {
+  let calls = 0;
+  const check = createChecker(async () => { calls++; return new Response(null, { status: 404 }); });
+  for (const ref of ['169.254.169.254/a/b:1', 'localhost:5000/a:1', 'ghcr.io.evil.example/a:1']) {
+    assert.equal((await check(ref)).status, 'blocked', ref);
+  }
+  assert.equal(calls, 0);
+  assert.equal(allowedRegistry('harbor.corp.local', 'harbor.corp.local'), true);
+  assert.equal(allowedRegistry('x.azurecr.io', ''), true);
+
+  // A registry cannot send the token request to another host.
+  const seen = [];
+  const redirecting = createChecker(async (url) => {
+    seen.push(new URL(url).host);
+    return new Response(null, { status: 401, headers: { 'www-authenticate': 'Bearer realm="https://internal.example/token"' } });
+  });
+  await redirecting('ghcr.io/a/b:1');
+  assert.ok(!seen.includes('internal.example'));
 });

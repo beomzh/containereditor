@@ -134,7 +134,7 @@ export async function main(argv, io = {}) {
       const compat = compatibility(sim, (ref) => results.get(ref), PLATFORMS);
       // With --platform the exit code requires those platforms; otherwise only that images exist.
       const wanted = platforms ?? [];
-      const failed = [...results.values()].some((r) => r.status !== 'exists')
+      const failed = [...results.values()].some((r) => r.status !== 'exists' && r.status !== 'blocked')
         || wanted.some((p) => compat.summary[PLATFORMS.indexOf(p)] !== true);
       if (values.json) {
         out(JSON.stringify({ images: Object.fromEntries([...results].map(([ref, { config, ...r }]) => [ref, r])), compatibility: compat }, null, 2));
@@ -143,7 +143,7 @@ export async function main(argv, io = {}) {
       for (const [ref, r] of results) {
         if (r.status === 'exists') out(`✓ ${t('ui.exists', { ref })}`);
         else {
-          out(`✗ ${ref}: ${t(r.key, r.params)}`);
+          out(`${r.status === 'blocked' ? '?' : '✗'} ${ref}: ${t(r.key, r.params)}`);
           if (r.suggestions?.length) out(`  ${t('ui.similar')} ${r.suggestions.join(', ')}`);
         }
       }

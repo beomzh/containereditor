@@ -111,6 +111,7 @@ Then run `dockereditor serve` on the server and open the printed URL locally.
 - The preview reads the file without building: files and users made by `RUN` are not shown.
 - Checks are this project's own rules; they do not catch every Docker/Podman error.
 - Private images that need a login cannot be checked.
+- Only well-known public registries are contacted. For your own registry: `DOCKEREDITOR_REGISTRIES=harbor.example.com dockereditor check`.
 - Docker Hub limits anonymous requests.
 - Editing `ARG`/`ENV` through forms or `set` can change comments and quoting inside that instruction.
 

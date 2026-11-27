@@ -91,6 +91,7 @@ ssh -L 4173:localhost:4173 user@server
 - 预览不执行构建，看不到 `RUN` 创建的文件和用户。
 - 检查规则为本项目自定义，无法发现 Docker/Podman 的所有错误。
 - 无法检查需要登录的私有镜像。
+- 只连接常见的公共仓库。自建仓库：`DOCKEREDITOR_REGISTRIES=harbor.example.com dockereditor check`
 - Docker Hub 限制匿名请求次数。
 - 通过表单或 `set` 修改 `ARG`/`ENV` 时，该指令内的注释和引号形式可能改变。
 

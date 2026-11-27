@@ -91,6 +91,7 @@ ssh -L 4173:localhost:4173 user@server
 - プレビューはビルドせずに解釈するため、`RUN` で作られるファイルやユーザーは表示されません。
 - 独自の検査ルールのため、Docker/Podman のすべてのエラーは検出できません。
 - ログインが必要な非公開イメージは確認できません。
+- 既知の公開レジストリにのみ接続します。独自レジストリ: `DOCKEREDITOR_REGISTRIES=harbor.example.com dockereditor check`
 - Docker Hub は匿名リクエストに上限があります。
 - フォームや `set` で `ARG`/`ENV` を変更すると、その命令内のコメントや引用符の形が変わることがあります。
 

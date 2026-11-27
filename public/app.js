@@ -153,7 +153,7 @@ function analyze() {
     const line = state.sim.rawStages[stage.index].from.startLine;
     const params = { ref: stage.baseRef, platform: platformOf(stage) };
     if (result?.status === 'not_found') state.diagnostics.push({ severity: 'error', line, message: t('diag.imageNotFound', params) });
-    else if (result?.status === 'auth_required' || result?.status === 'invalid') state.diagnostics.push({ severity: 'warning', line, message: `${stage.baseRef}: ${t(result.key, result.params)}` });
+    else if (['auth_required', 'invalid', 'blocked'].includes(result?.status)) state.diagnostics.push({ severity: 'warning', line, message: `${stage.baseRef}: ${t(result.key, result.params)}` });
     else if (result?.platformMissing) state.diagnostics.push({ severity: 'error', line, message: t('diag.platformMissing', params) });
   }
   state.diagnostics.sort((a, b) => a.line - b.line);

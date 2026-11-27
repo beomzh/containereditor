@@ -45,7 +45,8 @@ export function createBuildPanel({ root, h, t, toast, current }) {
 
   function cliCommand() {
     const { filename, target, buildArgs } = current();
-    const quote = (v) => (/^[\w./:=-]+$/.test(v) ? v : `"${v.replace(/"/g, '\\"')}"`);
+    // POSIX single quotes: nothing inside is interpreted by the shell.
+    const quote = (v) => (/^[\w./:=-]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
     return ['dockereditor build', quote(filename), `--platform ${current().platform}`, `--output ${state.output}`,
       target ? `--target ${quote(target)}` : null,
       ...Object.entries(buildArgs).map(([k, v]) => `--build-arg ${quote(`${k}=${v}`)}`),

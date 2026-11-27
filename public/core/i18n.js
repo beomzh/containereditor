@@ -111,6 +111,7 @@ export const MESSAGES = {
   'edit.noMatch': ['Nothing matched: {what}', '해당하는 항목이 없습니다: {what}', '没有匹配项：{what}', '該当する項目がありません: {what}'],
 
   // registry
+  'reg.notAllowed': ['{host} is not a known public registry, so it was not contacted. To allow it, set DOCKEREDITOR_REGISTRIES={host}.', '{host} 는 알려진 공개 레지스트리가 아니라서 접속하지 않았습니다. 허용하려면 DOCKEREDITOR_REGISTRIES={host} 를 설정하세요.', '{host} 不是已知的公共镜像仓库，因此未连接。如需允许，请设置 DOCKEREDITOR_REGISTRIES={host}。', '{host} は既知の公開レジストリではないため接続しませんでした。許可するには DOCKEREDITOR_REGISTRIES={host} を設定してください。'],
   'reg.notFound': ['Tag or repository not found.', '태그 또는 저장소를 찾을 수 없습니다.', '找不到该标签或仓库。', 'タグまたはリポジトリが見つかりません。'],
   'reg.auth': ['The repository does not exist or is private. It cannot be checked without logging in.', '저장소가 없거나 비공개입니다. 로그인 없이는 확인할 수 없습니다.', '仓库不存在或为私有，未登录无法检查。', 'リポジトリが存在しないか非公開です。ログインなしでは確認できません。'],
   'reg.rate': ['Registry rate limit exceeded. Try again later.', '레지스트리 요청 한도를 넘었습니다. 잠시 후 다시 시도하세요.', '超出镜像仓库请求限制，请稍后再试。', 'レジストリのリクエスト上限を超えました。しばらくして再試行してください。'],

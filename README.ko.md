@@ -91,6 +91,7 @@ ssh -L 4173:localhost:4173 user@server
 - 미리보기는 빌드 없이 파일을 해석합니다. `RUN` 이 만드는 파일·사용자는 보이지 않습니다.
 - 자체 검사 규칙이라 Docker/Podman 의 모든 오류를 잡지는 못합니다.
 - 로그인이 필요한 비공개 이미지는 확인할 수 없습니다.
+- 알려진 공개 레지스트리에만 접속합니다. 자체 레지스트리: `DOCKEREDITOR_REGISTRIES=harbor.example.com dockereditor check`
 - Docker Hub 는 익명 요청에 한도가 있습니다.
 - 폼이나 `set` 으로 `ARG`/`ENV` 를 고치면 해당 지시어의 주석·따옴표 모양이 바뀔 수 있습니다.
 

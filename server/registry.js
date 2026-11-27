@@ -10,6 +10,23 @@ const ACCEPT = [
   'application/vnd.docker.distribution.manifest.v2+json',
 ].join(', ');
 
+// The registry host comes from the file being edited, so only known public registries are
+// contacted. Add private ones with DOCKEREDITOR_REGISTRIES=host[:port],host2
+const PUBLIC_REGISTRIES = [
+  'registry-1.docker.io', 'ghcr.io', 'quay.io', 'gcr.io', 'public.ecr.aws', 'mcr.microsoft.com',
+  'registry.k8s.io', 'registry.access.redhat.com', 'registry.redhat.io', 'registry.gitlab.com',
+  'docker.elastic.co', 'nvcr.io', 'cgr.dev',
+];
+const PUBLIC_SUFFIXES = ['.gcr.io', '.pkg.dev', '.azurecr.io'];
+// Token services that live on a different host than their registry.
+const TOKEN_HOSTS = ['auth.docker.io', 'gitlab.com', 'sso.redhat.com'];
+
+export function allowedRegistry(host, extra = process.env.DOCKEREDITOR_REGISTRIES ?? '') {
+  const added = extra.split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+  const name = host.toLowerCase();
+  return PUBLIC_REGISTRIES.includes(name) || added.includes(name) || PUBLIC_SUFFIXES.some((s) => name.endsWith(s));
+}
+
 const TIMEOUT_MS = 10_000;
 const CACHE_MS = 10 * 60_000;
 const cache = new Map();
@@ -39,6 +56,10 @@ export function createChecker(fetchImpl = fetch) {
     const params = Object.fromEntries([...challenge.matchAll(/(\w+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
     if (!params.realm?.startsWith('https://')) return res;
     const tokenUrl = new URL(params.realm);
+    if (tokenUrl.host !== new URL(url).host && !TOKEN_HOSTS.includes(tokenUrl.host) && !allowedRegistry(tokenUrl.host)) {
+      log('warn', `token service refused: ${tokenUrl.host}`);
+      return res;
+    }
     for (const key of ['service', 'scope']) if (params[key]) tokenUrl.searchParams.set(key, params[key]);
     const tokenRes = await request(tokenUrl, {});
     if (!tokenRes.ok) return res;
@@ -106,6 +127,7 @@ export function createChecker(fetchImpl = fetch) {
     const { registry, repository } = parsed;
     const reference = parsed.digest ?? parsed.tag;
     const host = registry === 'docker.io' ? 'registry-1.docker.io' : registry;
+    if (!allowedRegistry(host)) return { status: 'blocked', registry, repository, reference: parsed.digest ?? parsed.tag, key: 'reg.notAllowed', params: { host } };
     const base = `https://${host}/v2/${repository}`;
     const session = {};
     const info = { registry, repository, reference };
