@@ -3,22 +3,28 @@ import { simulate, effectiveCommand } from './core/simulator.js';
 import { validate } from './core/validator.js';
 import * as ops from './core/editor-ops.js';
 import { TEMPLATES } from './core/templates.js';
+import { LANGUAGES, translate, normalizeLang } from './core/i18n.js';
+import { compatibility } from './core/platforms.js';
+import { createBuildPanel } from './build-panel.js';
 
 const $ = (id) => document.getElementById(id);
 const source = $('source');
 const STORE = 'dockereditor.v1';
+let lang = 'en';
+const t = (key, params) => translate(lang, key, params);
 
 const state = {
   buildArgs: {},
-  imageResults: {}, // `${ref}|${platform}` -> 서버 응답 또는 {status:'checking'}
-  selected: null, // 선택한 스테이지(=빌드 대상). null 이면 마지막
+  imageResults: {}, // `${ref}|${platform}` -> server response or {status:'checking'}
+  selected: null, // selected stage (build target); null means the last one
+  tab: 'preview',
   history: [],
   future: [],
   sim: null,
   diagnostics: [],
 };
 
-// ---------- DOM 도우미 ----------
+// ---------- DOM helpers ----------
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -40,7 +46,7 @@ function toast(message) {
   toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3500);
 }
 
-// ---------- 문서 변경 ----------
+// ---------- document changes ----------
 let lastSaved = '';
 let typingAt = 0;
 
@@ -58,13 +64,13 @@ function setText(text, { record = true } = {}) {
   refresh();
 }
 
-// 패널에서의 편집. 실패하면 이유를 알려준다.
+// Edits from the panels; show why when one fails.
 function edit(fn) {
   try {
     setText(fn(source.value));
   } catch (e) {
-    console.warn('[EDIT] 편집 실패:', e);
-    toast(e.message);
+    console.warn('[EDIT] failed:', e);
+    toast(e.key ? t(e.key, e.params) : e.message);
     render();
   }
 }
@@ -98,7 +104,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
 });
 
-// ---------- FROM 확인 ----------
+// ---------- image check ----------
 const platformOf = (stage) => (stage.platform && !stage.platform.includes('$') ? stage.platform : $('platform').value);
 const imageKey = (stage) => `${stage.baseRef}|${platformOf(stage)}`;
 
@@ -108,7 +114,7 @@ function externalStages(sim) {
 
 async function checkImages() {
   const targets = new Map(externalStages(state.sim).map((s) => [imageKey(s), s]));
-  if (!targets.size) { toast('확인할 외부 이미지가 없습니다.'); return; }
+  if (!targets.size) { toast(t('ui.nothingToCheck')); return; }
   $('check').disabled = true;
   for (const key of targets.keys()) state.imageResults[key] = { status: 'checking' };
   refresh();
@@ -117,17 +123,17 @@ async function checkImages() {
       const query = new URLSearchParams({ ref: stage.baseRef, platform: platformOf(stage) });
       const res = await fetch(`/api/check-image?${query}`);
       const body = await res.json();
-      state.imageResults[key] = body.status ? body : { status: 'error', message: `서버 응답 HTTP ${res.status}` };
+      state.imageResults[key] = body.status ? body : { status: 'error', key: 'reg.http', params: { status: res.status } };
     } catch (e) {
-      console.error('[CHECK] 이미지 확인 실패:', stage.baseRef, e);
-      state.imageResults[key] = { status: 'error', message: '로컬 서버에 연결할 수 없습니다.' };
+      console.error('[CHECK] failed:', stage.baseRef, e);
+      state.imageResults[key] = { status: 'error', key: 'ui.serverDown' };
     }
   }));
   $('check').disabled = false;
   refresh();
 }
 
-// ---------- 분석 ----------
+// ---------- analysis ----------
 function analyze() {
   const text = source.value;
   const platform = $('platform').value;
@@ -140,14 +146,15 @@ function analyze() {
   }
   state.sim = simulate(text, { ...options, baseConfigs });
   if (state.selected !== null && state.selected >= state.sim.stages.length) state.selected = null;
-  state.diagnostics = validate(text, { sim: state.sim });
+  state.diagnostics = validate(text, { sim: state.sim, lang });
 
   for (const stage of externalStages(state.sim)) {
     const result = state.imageResults[imageKey(stage)];
     const line = state.sim.rawStages[stage.index].from.startLine;
-    if (result?.status === 'not_found') state.diagnostics.push({ severity: 'error', line, message: `이미지를 찾을 수 없습니다: ${stage.baseRef}` });
-    else if (result?.status === 'auth_required' || result?.status === 'invalid') state.diagnostics.push({ severity: 'warning', line, message: `${stage.baseRef}: ${result.message}` });
-    else if (result?.platformMissing) state.diagnostics.push({ severity: 'error', line, message: `${stage.baseRef} 에는 ${platformOf(stage)} 용 이미지가 없습니다.` });
+    const params = { ref: stage.baseRef, platform: platformOf(stage) };
+    if (result?.status === 'not_found') state.diagnostics.push({ severity: 'error', line, message: t('diag.imageNotFound', params) });
+    else if (['auth_required', 'invalid', 'blocked'].includes(result?.status)) state.diagnostics.push({ severity: 'warning', line, message: `${stage.baseRef}: ${t(result.key, result.params)}` });
+    else if (result?.platformMissing) state.diagnostics.push({ severity: 'error', line, message: t('diag.platformMissing', params) });
   }
   state.diagnostics.sort((a, b) => a.line - b.line);
 }
@@ -156,18 +163,18 @@ function refresh() {
   try {
     analyze();
   } catch (e) {
-    console.error('[ANALYZE] 분석 실패:', e);
-    toast(`분석 중 오류: ${e.message}`);
+    console.error('[ANALYZE] failed:', e);
+    toast(e.message);
   }
   render();
   try {
     localStorage.setItem(STORE, JSON.stringify({ text: source.value, name: $('filename').value }));
   } catch (e) {
-    console.warn('[STORE] 자동 저장 실패:', e);
+    console.warn('[STORE] autosave failed:', e);
   }
 }
 
-// ---------- 편집기 표시 ----------
+// ---------- editor rendering ----------
 function highlightLine(line) {
   const span = (cls, text) => h('span', { class: cls }, text);
   if (/^\s*#/.test(line)) return [span('com', line)];
@@ -201,7 +208,7 @@ function renderEditor() {
   for (const d of state.diagnostics) {
     if (d.severity === 'error' || (d.severity === 'warning' && severity[d.line] !== 'error')) severity[d.line] = d.severity;
   }
-  // 마지막 여백 줄은 스크롤 위치를 textarea 와 맞추기 위한 것
+  // The extra lines keep scroll positions aligned with the textarea.
   $('gutter').replaceChildren(...lines.map((_, i) => h('span', { class: severity[i + 1] }, String(i + 1))), h('span', {}, ' '), h('span', {}, ' '));
   $('highlight').replaceChildren(...lines.flatMap((l) => [...highlightLine(l), '\n']), '\n\n');
   syncScroll();
@@ -220,41 +227,40 @@ function renderDiagnostics() {
   const count = (s) => state.diagnostics.filter((d) => d.severity === s).length;
   const errors = count('error');
   $('summary').replaceChildren(
-    h('span', { class: errors ? 'text-error' : 'text-ok' }, errors ? `오류 ${errors}` : '문법 오류 없음'),
-    ` · 경고 ${count('warning')} · 제안 ${count('info')}`,
+    h('span', { class: errors ? 'text-error' : 'text-ok' }, errors ? t('ui.errors', { n: errors }) : t('ui.noErrors')),
+    ` · ${t('ui.counts', { w: count('warning'), i: count('info') })}`,
   );
-  const label = { error: '오류', warning: '경고', info: '제안' };
   $('diagnostics').replaceChildren(...state.diagnostics.map((d) => h('li', {},
     h('button', { class: d.severity, onclick: () => goToLine(d.line) },
-      h('span', { class: 'tag' }, label[d.severity]),
-      h('span', { class: 'muted' }, `${d.line}줄`),
+      h('span', { class: 'tag' }, t(`ui.${d.severity}`)),
+      h('span', { class: 'muted' }, t('ui.line', { line: d.line })),
       h('span', {}, d.message)))));
 }
 
-// ---------- 왼쪽: 스테이지와 설정 ----------
+// ---------- left: stages and settings ----------
 function imageStatus(stage) {
-  if (stage.parentIndex !== null) return h('div', { class: 'image-status muted' }, `↳ 앞 스테이지에서 이어받음`);
-  if (stage.baseRef === 'scratch') return h('div', { class: 'image-status muted' }, '빈 이미지(scratch)');
+  if (stage.parentIndex !== null) return h('div', { class: 'image-status muted' }, t('ui.inherits'));
+  if (stage.baseRef === 'scratch') return h('div', { class: 'image-status muted' }, t('ui.scratch'));
   const r = state.imageResults[imageKey(stage)];
-  if (!r) return h('div', { class: 'image-status muted' }, `${stage.baseRef} — 아직 확인 안 함`);
-  if (r.status === 'checking') return h('div', { class: 'image-status muted' }, '확인 중…');
+  if (!r) return h('div', { class: 'image-status muted' }, t('ui.notChecked', { ref: stage.baseRef }));
+  if (r.status === 'checking') return h('div', { class: 'image-status muted' }, t('ui.checking'));
   if (r.status === 'exists') {
-    if (r.platformMissing) return h('div', { class: 'image-status text-error' }, `✗ 태그는 있지만 ${platformOf(stage)} 가 없습니다. 지원: ${r.platforms?.join(', ')}`);
-    const size = r.compressedSize ? ` · 압축 ${(r.compressedSize / 1048576).toFixed(1)} MB` : '';
+    if (r.platformMissing) return h('div', { class: 'image-status text-error' }, `✗ ${t('diag.platformMissing', { ref: stage.baseRef, platform: platformOf(stage) })} (${r.platforms?.join(', ')})`);
+    const size = r.compressedSize ? ` · ${t('ui.compressed', { size: (r.compressedSize / 1048576).toFixed(1) })}` : '';
     return h('div', { class: 'image-status text-ok', title: r.digest ?? '' },
-      `✓ ${stage.baseRef} 존재함${size}${r.configError ? ` (설정 읽기 실패: ${r.configError})` : ''}`);
+      `✓ ${t('ui.exists', { ref: stage.baseRef })}${size}${r.configError ? ` (${r.configError})` : ''}`);
   }
   const cls = r.status === 'not_found' || r.status === 'invalid' ? 'text-error' : 'text-warning';
   const mark = r.status === 'not_found' || r.status === 'invalid' ? '✗' : '?';
-  return h('div', { class: `image-status ${cls}` }, `${mark} ${r.message}`,
-    r.suggestions?.length ? h('div', { class: 'muted' }, '비슷한 태그: ', r.suggestions.map((tag) => h('button', {
+  return h('div', { class: `image-status ${cls}` }, `${mark} ${t(r.key, r.params)}`,
+    r.suggestions?.length ? h('div', { class: 'muted' }, `${t('ui.similar')} `, r.suggestions.map((tag) => h('button', {
       class: 'link',
       onclick: () => {
         const image = state.sim.rawStages[stage.index].image;
         const name = image.split('@')[0];
         const repo = name.lastIndexOf(':') > name.lastIndexOf('/') ? name.slice(0, name.lastIndexOf(':')) : name;
-        if (repo.includes('$')) toast('변수를 쓰는 FROM 은 ARG 값을 고쳐 주세요.');
-        else edit((t) => ops.setStageFrom(t, stage.index, { image: `${repo}:${tag}` }));
+        if (repo.includes('$')) toast(t('ui.editArg'));
+        else edit((text) => ops.setStageFrom(text, stage.index, { image: `${repo}:${tag}` }));
       },
     }, `${tag} `))) : null);
 }
@@ -263,45 +269,46 @@ function pairRows(instructions, keyword) {
   return instructions.filter((i) => i.keyword === keyword).flatMap((ins) => {
     const { pairs } = parsePairs(ins, state.sim.parsed.escape);
     return pairs.map((pair, index) => {
-      const key = h('input', { class: 'key mono', value: pair.key, 'aria-label': `${keyword} 이름` });
-      const value = h('input', { class: 'mono', value: pair.value ?? '', placeholder: keyword === 'ARG' ? '(기본값 없음)' : '', 'aria-label': `${keyword} ${pair.key} 값` });
-      const apply = () => edit((t) => ops.setPair(t, ins.startLine, index, {
+      const key = h('input', { class: 'key mono', value: pair.key, 'aria-label': `${keyword} ${t('ui.name')}` });
+      const value = h('input', { class: 'mono', value: pair.value ?? '', placeholder: keyword === 'ARG' ? t('ui.noDefault') : '', 'aria-label': `${keyword} ${pair.key} ${t('ui.value')}` });
+      const apply = () => edit((text) => ops.setPair(text, ins.startLine, index, {
         key: key.value,
         value: keyword === 'ARG' && value.value === '' && pair.value === null ? null : value.value,
       }));
       key.addEventListener('change', apply);
       value.addEventListener('change', apply);
       return h('div', { class: 'row' }, h('span', { class: 'badge' }, keyword), key, value,
-        h('button', { class: 'danger', title: '삭제', onclick: () => edit((t) => ops.setPair(t, ins.startLine, index, null)) }, '×'));
+        h('button', { class: 'danger', title: t('ui.delete'), onclick: () => edit((text) => ops.setPair(text, ins.startLine, index, null)) }, '×'));
     });
   });
 }
 
 function instructionRows(instructions) {
   return instructions.filter((i) => ['USER', 'WORKDIR', 'EXPOSE', 'CMD', 'ENTRYPOINT'].includes(i.keyword)).map((ins) => {
-    const input = h('input', { class: 'mono', value: ins.args, 'aria-label': `${ins.keyword} 값` });
-    input.addEventListener('change', () => edit((t) => ops.replaceInstruction(t, ins.startLine, ops.buildLine(ins.keyword, input.value))));
+    const input = h('input', { class: 'mono', value: ins.args, 'aria-label': `${ins.keyword} ${t('ui.value')}` });
+    input.addEventListener('change', () => edit((text) => ops.replaceInstruction(text, ins.startLine, ops.buildLine(ins.keyword, input.value))));
     return h('div', { class: 'row' }, h('span', { class: 'badge' }, ins.keyword), input,
-      h('button', { class: 'danger', title: '삭제', onclick: () => edit((t) => ops.removeInstruction(t, ins.startLine)) }, '×'));
+      h('button', { class: 'danger', title: t('ui.delete'), onclick: () => edit((text) => ops.removeInstruction(text, ins.startLine)) }, '×'));
   });
 }
 
+const PAIR_HINTS = { ARG: ['ui.name', 'ui.defaultValue'], ENV: ['ui.name', 'ui.value'], LABEL: ['ui.name', 'ui.value'] };
 const HINTS = {
-  ARG: ['이름', '기본값(선택)'], ENV: ['이름', '값'], LABEL: ['키', '값'],
-  USER: ['app 또는 1000:1000'], WORKDIR: ['/app'], EXPOSE: ['8080/tcp'],
+  USER: ['app | 1000:1000'], WORKDIR: ['/app'], EXPOSE: ['8080/tcp'],
   RUN: ['apt-get update && apt-get install -y curl'], COPY: ['--chown=app:app . .'],
   CMD: ['["node", "server.js"]'], ENTRYPOINT: ['["/app"]'],
 };
 const addChoice = {};
 
 function addForm(stageIndex, keywords) {
-  const select = h('select', { 'aria-label': '추가할 지시어' }, keywords.map((k) => h('option', {}, k)));
+  const select = h('select', { 'aria-label': t('ui.add') }, keywords.map((k) => h('option', {}, k)));
   select.value = addChoice[stageIndex] ?? keywords[0];
   const fields = h('div', { class: 'row grow' });
   const build = () => {
     addChoice[stageIndex] = select.value;
-    const paired = ['ARG', 'ENV', 'LABEL'].includes(select.value);
-    fields.replaceChildren(...HINTS[select.value].map((hint, i) => h('input', { class: paired && i === 0 ? 'key mono' : 'mono', placeholder: hint, 'aria-label': `새 ${select.value} ${hint}` })));
+    const paired = Object.hasOwn(PAIR_HINTS, select.value);
+    const hints = paired ? PAIR_HINTS[select.value].map((k) => t(k)) : HINTS[select.value];
+    fields.replaceChildren(...hints.map((hint, i) => h('input', { class: paired && i === 0 ? 'key mono' : 'mono', placeholder: hint, 'aria-label': `${select.value} ${hint}` })));
   };
   select.addEventListener('change', build);
   build();
@@ -311,29 +318,29 @@ function addForm(stageIndex, keywords) {
       e.preventDefault();
       const [a, b] = [...fields.children].map((c) => c.value);
       const keyword = select.value;
-      if (!a.trim()) { toast('값을 입력하세요.'); return; }
-      edit((t) => ops.addInstruction(t, stageIndex, ['ARG', 'ENV', 'LABEL'].includes(keyword)
+      if (!a.trim()) { toast(t('ui.enterValue')); return; }
+      edit((text) => ops.addInstruction(text, stageIndex, ['ARG', 'ENV', 'LABEL'].includes(keyword)
         ? ops.buildPairLine(keyword, a, keyword === 'ARG' && b === '' ? null : b)
         : ops.buildLine(keyword, a)));
     },
-  }, select, fields, h('button', { type: 'submit' }, '추가'));
+  }, select, fields, h('button', { type: 'submit' }, t('ui.add')));
 }
 
 function splitForm(stage) {
   const raw = state.sim.rawStages[stage.index];
   if (!raw.instructions.length) return null;
-  const at = h('select', { class: 'grow', 'aria-label': '분리 시작 지점' },
-    raw.instructions.map((i) => h('option', { value: i.startLine }, `${i.startLine}줄 ${i.keyword} ${i.args}`.slice(0, 60))));
-  const name = h('input', { placeholder: '새 이름 (예: runtime)', 'aria-label': '새 스테이지 이름' });
-  const base = h('input', { placeholder: '새 베이스 (비우면 이어받기)', 'aria-label': '새 베이스 이미지' });
-  const path = h('input', { placeholder: '가져올 경로 (예: /app)', 'aria-label': '이전 스테이지에서 복사할 경로' });
+  const at = h('select', { class: 'grow', 'aria-label': t('ui.splitTitle') },
+    raw.instructions.map((i) => h('option', { value: i.startLine }, `${i.startLine}: ${i.keyword} ${i.args}`.slice(0, 60))));
+  const name = h('input', { placeholder: t('ui.newName'), 'aria-label': t('ui.newName') });
+  const base = h('input', { placeholder: t('ui.newBase'), 'aria-label': t('ui.newBase') });
+  const path = h('input', { placeholder: t('ui.copyPath'), 'aria-label': t('ui.copyPath') });
   return h('details', {},
-    h('summary', {}, '여기서 스테이지 분리'),
+    h('summary', {}, t('ui.splitTitle')),
     h('div', { class: 'row' }, at),
     h('div', { class: 'row' }, name, base),
     h('div', { class: 'row' }, path, h('button', {
-      onclick: () => edit((t) => ops.splitStage(t, Number(at.value), { name: name.value.trim(), base: base.value.trim(), copyPath: path.value.trim() })),
-    }, '분리')));
+      onclick: () => edit((text) => ops.splitStage(text, Number(at.value), { name: name.value.trim(), base: base.value.trim(), copyPath: path.value.trim() })),
+    }, t('ui.split'))));
 }
 
 function renderLeft() {
@@ -341,7 +348,7 @@ function renderLeft() {
   const open = new Set([...$('left').querySelectorAll('details[open]')].map((d) => d.parentElement.dataset.stage));
   const cards = [
     h('div', { class: 'card' },
-      h('h2', {}, '전역 ARG ', h('span', { class: 'muted' }, '(첫 FROM 앞)')),
+      h('h2', {}, t('ui.globalArgs')),
       pairRows(sim.globals, 'ARG'),
       addForm(-1, ['ARG'])),
   ];
@@ -349,22 +356,22 @@ function renderLeft() {
   for (const stage of sim.stages) {
     const raw = sim.rawStages[stage.index];
     const selected = stage.index === sim.targetIndex;
-    const image = h('input', { class: 'mono', value: raw.image, 'aria-label': `스테이지 ${stage.index} 이미지` });
-    const name = h('input', { class: 'key mono', value: raw.name ?? '', placeholder: '이름', 'aria-label': `스테이지 ${stage.index} 이름` });
-    image.addEventListener('change', () => edit((t) => ops.setStageFrom(t, stage.index, { image: image.value })));
-    name.addEventListener('change', () => edit((t) => ops.setStageFrom(t, stage.index, { name: name.value })));
+    const image = h('input', { class: 'mono', value: raw.image, 'aria-label': `FROM ${stage.index}` });
+    const name = h('input', { class: 'key mono', value: raw.name ?? '', placeholder: t('ui.name'), 'aria-label': `AS ${stage.index}` });
+    image.addEventListener('change', () => edit((text) => ops.setStageFrom(text, stage.index, { image: image.value })));
+    name.addEventListener('change', () => edit((text) => ops.setStageFrom(text, stage.index, { name: name.value })));
     const card = h('div', { class: `card${selected ? ' selected' : ''}${sim.used.has(stage.index) ? '' : ' unused'}` },
       h('div', { class: 'head' },
-        h('h2', { class: 'clickable', onclick: () => goToLine(raw.from.startLine) }, `스테이지 ${stage.index}`),
-        selected ? h('span', { class: 'badge accent' }, '빌드 대상') : h('button', { class: 'link', onclick: () => { state.selected = stage.index; refresh(); } }, '결과 보기'),
+        h('h2', { class: 'clickable', onclick: () => goToLine(raw.from.startLine) }, t('ui.stage', { n: stage.index })),
+        selected ? h('span', { class: 'badge accent' }, t('ui.target')) : h('button', { class: 'link', onclick: () => { state.selected = stage.index; refresh(); } }, t('ui.showResult')),
         h('span', { class: 'spacer' }),
-        h('button', { class: 'link', title: '이 스테이지를 빌드하는 데 필요한 부분만 파일로 저장', onclick: () => exportStage(stage.index) }, '따로 저장'),
+        h('button', { class: 'link', onclick: () => exportStage(stage.index) }, t('ui.export')),
         h('button', {
           class: 'link danger',
           onclick: () => {
-            if (confirm(`스테이지 ${stage.name ?? stage.index} 를 삭제할까요? (되돌리기 가능)`)) { state.selected = null; edit((t) => ops.removeStage(t, stage.index)); }
+            if (confirm(t('ui.confirmDelete', { name: stage.name ?? stage.index }))) { state.selected = null; edit((text) => ops.removeStage(text, stage.index)); }
           },
-        }, '삭제')),
+        }, t('ui.delete'))),
       h('div', { class: 'row' }, h('span', { class: 'badge' }, 'FROM'), image, h('span', { class: 'muted' }, 'AS'), name),
       imageStatus(stage),
       pairRows(raw.instructions, 'ARG'),
@@ -378,35 +385,35 @@ function renderLeft() {
     cards.push(card);
   }
 
-  const newImage = h('input', { class: 'mono', placeholder: '이미지 (예: alpine:3.20)', 'aria-label': '새 스테이지 이미지' });
-  const newName = h('input', { class: 'key mono', placeholder: '이름', 'aria-label': '새 스테이지 이름' });
-  cards.push(h('div', { class: 'card' }, h('h2', {}, '스테이지 추가'),
+  const newImage = h('input', { class: 'mono', placeholder: t('ui.image'), 'aria-label': t('ui.image') });
+  const newName = h('input', { class: 'key mono', placeholder: t('ui.name'), 'aria-label': t('ui.addStage') });
+  cards.push(h('div', { class: 'card' }, h('h2', {}, t('ui.addStage')),
     h('div', { class: 'row' }, newImage, newName, h('button', {
-      onclick: () => { state.selected = null; edit((t) => ops.addStage(t, { image: newImage.value, name: newName.value.trim() })); },
-    }, '추가'))));
+      onclick: () => { state.selected = null; edit((text) => ops.addStage(text, { image: newImage.value, name: newName.value.trim() })); },
+    }, t('ui.add')))));
   $('left').replaceChildren(...cards);
 }
 
-// ---------- 오른쪽: 결과 ----------
+// ---------- right: result and compatibility ----------
 const label = (s) => s.name ?? `#${s.index}`;
 const table = (rows) => h('table', {}, h('tbody', {}, rows.map(([k, v]) => h('tr', {}, h('td', {}, k), h('td', { class: 'mono' }, v)))));
-const list = (items, empty = '없음') => (items.length ? items.map((v) => h('div', {}, v)) : h('span', { class: 'muted' }, empty));
+const list = (items, empty) => (items.length ? items.map((v) => h('div', {}, v)) : h('span', { class: 'muted' }, empty));
 
 function renderFlow() {
   const { sim } = state;
-  return h('div', { class: 'card' }, h('h2', {}, '스테이지 흐름'),
+  return h('div', { class: 'card' }, h('h2', {}, t('ui.flow')),
     h('div', { class: 'flow' }, sim.stages.flatMap((s) => {
       const incoming = [];
       if (s.parentIndex !== null) incoming.push(`↓ FROM ${label(sim.stages[s.parentIndex])}`);
-      for (const dep of s.deps.filter((d) => d !== s.parentIndex)) incoming.push(`↓ 파일 가져옴: ${label(sim.stages[dep])}`);
-      for (const ext of s.externalFrom) incoming.push(`↓ 외부 이미지에서 가져옴: ${ext}`);
+      for (const dep of s.deps.filter((d) => d !== s.parentIndex)) incoming.push(t('ui.copiesFrom', { name: label(sim.stages[dep]) }));
+      for (const ext of s.externalFrom) incoming.push(t('ui.external', { name: ext }));
       return [
-        h('div', { class: 'edge' }, incoming.map((t) => h('div', {}, t))),
+        h('div', { class: 'edge' }, incoming.map((line) => h('div', {}, line))),
         h('button', {
           class: `node${s.index === sim.targetIndex ? ' target' : ''}${sim.used.has(s.index) ? '' : ' unused'}`,
           onclick: () => { state.selected = s.index; refresh(); },
         }, h('strong', {}, label(s)), ' ', h('span', { class: 'muted mono' }, s.baseRef),
-        sim.used.has(s.index) ? null : h('span', { class: 'muted' }, ' (빌드에서 제외)')),
+        sim.used.has(s.index) ? null : h('span', { class: 'muted' }, ` ${t('ui.skipped')}`)),
       ];
     })));
 }
@@ -418,9 +425,9 @@ function buildArgsCard() {
     for (const p of parsePairs(ins, sim.parsed.escape).pairs) if (!args.has(p.key) || args.get(p.key) === null) args.set(p.key, p.value);
   }
   if (!args.size) return null;
-  return h('div', { class: 'card' }, h('h2', {}, '--build-arg 시험 ', h('span', { class: 'muted' }, '(파일은 바뀌지 않음)')),
+  return h('div', { class: 'card' }, h('h2', {}, t('ui.tryArgs')),
     [...args].map(([key, def]) => {
-      const input = h('input', { class: 'mono', value: state.buildArgs[key] ?? '', placeholder: def ?? '(값 없음)', 'aria-label': `build-arg ${key}` });
+      const input = h('input', { class: 'mono', value: state.buildArgs[key] ?? '', placeholder: def ?? t('ui.noValue'), 'aria-label': `build-arg ${key}` });
       input.addEventListener('change', () => {
         if (input.value === '') delete state.buildArgs[key];
         else state.buildArgs[key] = input.value;
@@ -430,58 +437,78 @@ function buildArgsCard() {
     }));
 }
 
-function renderRight() {
+function renderPreview() {
   const { sim } = state;
   const final = sim.stages[sim.targetIndex];
   if (!final) {
-    $('right').replaceChildren(h('div', { class: 'card muted' }, 'FROM 을 추가하면 결과가 보입니다.'));
+    $('preview').replaceChildren(h('div', { class: 'card muted' }, t('ui.noStage')));
     return;
   }
   const s = final.state;
-  const unknown = final.baseKnown ? '없음' : '베이스 이미지 값 (FROM 확인 필요)';
-  const command = effectiveCommand(s);
-  const quote = (v) => (/^[\w./:=@-]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
-  const used = [...sim.used];
-  const buildCommand = [
-    'docker build', `-f ${quote($('filename').value || 'Dockerfile')}`,
-    sim.targetIndex !== sim.stages.length - 1 && final.name ? `--target ${final.name}` : null,
-    `--platform ${$('platform').value}`,
-    ...Object.entries(state.buildArgs).map(([k, v]) => `--build-arg ${quote(`${k}=${v}`)}`),
-    '-t myimage .',
-  ].filter(Boolean).join(' ');
+  const windows = final.os === 'windows';
+  const unknown = final.baseKnown ? t('ui.none') : t('ui.fromBase');
+  const command = effectiveCommand(s, final.os);
   const errors = state.diagnostics.filter((d) => d.severity === 'error').length;
+  const from = (f) => f.origin.name ?? t('ui.buildContext');
 
-  $('right').replaceChildren(...[
-    errors ? h('div', { class: 'card text-error' }, `오류 ${errors}개가 있어 실제 빌드는 실패할 수 있습니다. 아래는 해석 가능한 범위의 결과입니다.`) : null,
+  $('preview').replaceChildren(...[
+    errors ? h('div', { class: 'card text-error' }, t('ui.hasErrors', { n: errors })) : null,
     renderFlow(),
     h('div', { class: 'card' },
-      h('h2', {}, `최종 이미지 — ${label(final)}`),
-      h('div', { class: 'muted' }, `베이스: ${final.baseRef} · 빌드되는 스테이지 ${used.length}/${sim.stages.length}`),
-      h('h3', {}, 'docker run 하면 실행되는 프로세스'),
+      h('h2', {}, t('ui.finalImage', { name: label(final) })),
+      h('div', { class: 'muted' }, t('ui.baseSummary', { ref: final.baseRef, used: sim.used.size, total: sim.stages.length })),
+      h('h3', {}, t('ui.process')),
       h('pre', { class: 'block mono' }, command.length ? JSON.stringify(command) : unknown),
       table([
-        ['USER', s.user ?? (final.baseKnown ? 'root (기본)' : unknown)],
-        ['WORKDIR', s.workdir ?? (final.baseKnown ? '/' : unknown)],
+        ['USER', s.user ?? (final.baseKnown && !windows ? t('ui.defaultUser', { user: 'root' }) : unknown)],
+        ['WORKDIR', s.workdir ?? (final.baseKnown && !windows ? '/' : unknown)],
         ['EXPOSE', list([...s.expose], unknown)],
-        ['VOLUME', list([...s.volumes])],
-        ['HEALTHCHECK', s.healthcheck ?? '없음'],
-        ['STOPSIGNAL', s.stopsignal ?? '기본(SIGTERM)'],
+        ['VOLUME', list([...s.volumes], t('ui.none'))],
+        ['HEALTHCHECK', s.healthcheck ?? t('ui.none')],
+        ['STOPSIGNAL', s.stopsignal ?? 'SIGTERM'],
       ]),
-      h('h3', {}, '환경 변수 (컨테이너에 남음)'),
+      h('h3', {}, t('ui.envTitle')),
       s.env.size ? table([...s.env]) : h('span', { class: 'muted' }, unknown),
-      s.args.size ? [h('h3', {}, 'ARG (빌드 중에만)'), table([...s.args].map(([k, v]) => [k, v ?? '(값 없음)']))] : null,
+      s.args.size ? [h('h3', {}, t('ui.argTitle')), table([...s.args].map(([k, v]) => [k, v ?? t('ui.noValue')]))] : null,
       s.labels.size ? [h('h3', {}, 'LABEL'), table([...s.labels])] : null),
     h('div', { class: 'card' },
-      h('h2', {}, '이미지에 들어가는 파일'),
-      s.files.length ? table(s.files.map((f) => [f.dest, `${f.src}  ← ${f.origin}${f.chown ? ` · 소유자 ${f.chown}` : ''}${f.chmod ? ` · 권한 ${f.chmod}` : ''}`])) : h('span', { class: 'muted' }, 'COPY/ADD 없음'),
-      h('h3', {}, `추가되는 레이어 (베이스 위, ${s.layers.length}개)`),
+      h('h2', {}, t('ui.files')),
+      s.files.length ? table(s.files.map((f) => [f.dest, `${f.src}  ← ${from(f)}${f.chown ? ` · chown ${f.chown}` : ''}${f.chmod ? ` · chmod ${f.chmod}` : ''}`])) : h('span', { class: 'muted' }, t('ui.noCopy')),
+      h('h3', {}, t('ui.layers', { n: s.layers.length })),
       h('ol', { class: 'layers' }, s.layers.map((l) => h('li', { class: 'clickable', onclick: () => goToLine(l.line) },
         h('span', { class: 'badge' }, l.keyword), ' ', h('span', { class: 'mono' }, l.summary.slice(0, 160)))))),
     buildArgsCard(),
-    h('div', { class: 'card' }, h('h2', {}, '빌드 명령'), h('pre', { class: 'block mono' }, buildCommand),
-      h('button', { onclick: () => navigator.clipboard.writeText(buildCommand).then(() => toast('복사했습니다.'), () => toast('복사할 수 없습니다.')) }, '복사')),
-    h('div', { class: 'muted' }, '이 미리보기는 파일을 해석한 결과이며 실제 빌드를 실행하지 않습니다. RUN 명령이 만드는 파일과 사용자는 반영되지 않습니다.'),
+    h('div', { class: 'muted' }, t('ui.previewNote')),
   ].filter(Boolean));
+}
+
+function renderCompat() {
+  const { sim } = state;
+  // Any earlier result for an image carries its published platform list.
+  const lookup = (ref) => Object.entries(state.imageResults).find(([key, r]) => key.startsWith(`${ref}|`) && r.status !== 'checking')?.[1];
+  const compat = compatibility(sim, lookup);
+  const cell = (v) => h('td', { class: v === true ? 'text-ok' : v === false ? 'text-error' : 'muted' }, v === true ? '✓' : v === false ? '✗' : '?');
+  const head = h('tr', {}, h('th', {}), compat.platforms.map((p) => h('th', {}, p.replace('/', '\n'))));
+  $('compat').replaceChildren(
+    h('div', { class: 'card' }, h('h2', {}, t('ui.compatTitle')),
+      h('table', { class: 'matrix' }, h('thead', {}, head), h('tbody', {},
+        compat.rows.map((row) => h('tr', {},
+          h('th', {}, h('div', {}, row.name ?? `#${row.index}`), h('div', { class: 'muted mono' }, row.ref),
+            row.pinned ? h('div', { class: 'badge' }, t('ui.pinned', { platform: row.pinned })) : null),
+          row.cells.map(cell))),
+        h('tr', { class: 'total' }, h('th', {}, t('ui.compatAll')), compat.summary.map(cell)))),
+      h('div', { class: 'muted' }, t('ui.compatLegend')),
+      h('button', { class: 'primary', onclick: checkImages }, t('ui.check'))),
+    h('div', { class: 'muted' }, t('ui.compatNote')));
+}
+
+function showTab(name) {
+  state.tab = name;
+  for (const button of $('tabs').children) {
+    button.setAttribute('aria-selected', String(button.dataset.tab === name));
+    $(button.dataset.tab).hidden = button.dataset.tab !== name;
+  }
+  if (name === 'build') buildPanel.update();
 }
 
 function render() {
@@ -489,12 +516,14 @@ function render() {
   renderEditor();
   renderDiagnostics();
   renderLeft();
-  renderRight();
+  renderPreview();
+  renderCompat();
+  if (state.tab === 'build') buildPanel.update();
   $('undo').disabled = !state.history.length;
   $('redo').disabled = !state.future.length;
 }
 
-// ---------- 파일 ----------
+// ---------- files ----------
 function download(name, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
   h('a', { href: url, download: name }).click();
@@ -506,35 +535,60 @@ function exportStage(index) {
     const stage = state.sim.stages[index];
     download(`${$('filename').value || 'Dockerfile'}.${stage.name ?? index}`, ops.extractStage(source.value, index));
   } catch (e) {
-    console.warn('[EXPORT] 스테이지 저장 실패:', e);
-    toast(e.message);
+    console.warn('[EXPORT] failed:', e);
+    toast(e.key ? t(e.key, e.params) : e.message);
   }
 }
 
 async function openFile(file) {
   if (!file) return;
-  if (file.size > 512 * 1024) { toast('512KB 를 넘는 파일은 열 수 없습니다.'); return; }
+  if (file.size > 512 * 1024) { toast(t('ui.tooBig')); return; }
   try {
     const text = await file.text();
     $('filename').value = file.name;
     state.buildArgs = {};
     state.selected = null;
     setText(text.replace(/\r\n?/g, '\n'));
-    toast(`${file.name} 을 열었습니다.`);
+    toast(t('ui.opened', { name: file.name }));
   } catch (e) {
-    console.error('[OPEN] 파일 읽기 실패:', file.name, e);
-    toast('파일을 읽을 수 없습니다.');
+    console.error('[OPEN] failed:', file.name, e);
+    toast(t('ui.readFailed'));
   }
 }
 
+// ---------- language ----------
+function applyLanguage(next) {
+  lang = normalizeLang(next);
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : lang;
+  document.title = t('ui.title');
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  for (const el of document.querySelectorAll('[data-i18n-label]')) el.setAttribute('aria-label', t(el.dataset.i18nLabel));
+  $('template').replaceChildren(h('option', { value: '' }, t('ui.new')),
+    ...Object.keys(TEMPLATES).map((name) => h('option', { value: name }, t(`template.${name}`))));
+  $('language').value = lang;
+  buildPanel.relabel();
+}
+
+const buildPanel = createBuildPanel({
+  root: $('build'), h, t, toast,
+  current: () => ({
+    content: source.value, platform: $('platform').value, filename: $('filename').value || 'Dockerfile',
+    buildArgs: state.buildArgs,
+    // An unnamed stage cannot be a --target; "#n" makes the builder say so instead of building the last stage.
+    target: state.sim && state.sim.targetIndex !== state.sim.stages.length - 1 ? state.sim.stages[state.sim.targetIndex]?.name ?? `#${state.sim.targetIndex}` : '',
+  }),
+});
+
+// ---------- events and start ----------
 $('open').addEventListener('click', () => $('file').click());
 $('file').addEventListener('change', (e) => { openFile(e.target.files[0]); e.target.value = ''; });
 $('save').addEventListener('click', save);
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
-$('check').addEventListener('click', checkImages);
+$('check').addEventListener('click', () => { checkImages(); showTab('compat'); });
 $('platform').addEventListener('change', refresh);
 $('filename').addEventListener('change', refresh);
+for (const button of $('tabs').children) button.addEventListener('click', () => showTab(button.dataset.tab));
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => {
   if (!e.dataTransfer.files.length) return;
@@ -542,24 +596,41 @@ document.addEventListener('drop', (e) => {
   openFile(e.dataTransfer.files[0]);
 });
 
-for (const name of Object.keys(TEMPLATES)) $('template').append(h('option', { value: name }, name));
 $('template').addEventListener('change', (e) => {
-  const text = TEMPLATES[e.target.value];
+  const name = e.target.value;
   e.target.value = '';
-  if (!text) return;
+  if (!Object.hasOwn(TEMPLATES, name)) return;
   state.buildArgs = {};
   state.selected = null;
-  setText(text);
-  toast('템플릿을 적용했습니다. 되돌리기로 이전 내용을 복구할 수 있습니다.');
+  if (name === 'windows') $('platform').value = 'windows/amd64';
+  else if ($('platform').value.startsWith('windows/')) $('platform').value = 'linux/amd64';
+  setText(TEMPLATES[name]);
+  toast(t('ui.templated'));
+});
+
+for (const [code, name] of Object.entries(LANGUAGES)) $('language').append(h('option', { value: code }, name));
+$('language').addEventListener('change', (e) => {
+  applyLanguage(e.target.value);
+  try {
+    localStorage.setItem(`${STORE}.lang`, lang);
+  } catch (err) {
+    console.warn('[STORE] language not saved:', err);
+  }
+  refresh();
 });
 
 let saved = null;
+let savedLang = null;
 try {
   saved = JSON.parse(localStorage.getItem(STORE));
+  savedLang = localStorage.getItem(`${STORE}.lang`);
 } catch (e) {
-  console.warn('[STORE] 저장된 내용을 읽지 못했습니다:', e);
+  console.warn('[STORE] could not read saved content:', e);
 }
-source.value = saved?.text ?? Object.values(TEMPLATES)[0];
+source.value = saved?.text ?? TEMPLATES.node;
 $('filename').value = saved?.name ?? 'Dockerfile';
 lastSaved = source.value;
+// English is the default; ?lang= or an earlier choice overrides it.
+applyLanguage(new URLSearchParams(location.search).get('lang') ?? savedLang ?? 'en');
+showTab('preview');
 refresh();

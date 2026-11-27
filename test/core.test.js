@@ -6,11 +6,11 @@ import { validate } from '../public/core/validator.js';
 import { parseImageRef } from '../public/core/imageref.js';
 import * as ops from '../public/core/editor-ops.js';
 import { TEMPLATES } from '../public/core/templates.js';
-import { createChecker } from '../server/registry.js';
+import { createChecker, allowedRegistry } from '../server/registry.js';
 
 const codes = (text, severity) => validate(text).filter((d) => !severity || d.severity === severity).map((d) => d.code);
 
-test('줄 이음, 주석, heredoc 파싱', () => {
+test('parses continuations, comments and heredocs', () => {
   const p = parse('# syntax=docker/dockerfile:1\nFROM a\nRUN x \\\n  # c\n  && y\nRUN <<EOF\nFROM not-a-stage\nEOF\nUSER app\n');
   assert.deepEqual(p.instructions.map((i) => i.keyword), ['FROM', 'RUN', 'RUN', 'USER']);
   assert.equal(p.instructions[1].args, 'x   && y');
@@ -18,7 +18,7 @@ test('줄 이음, 주석, heredoc 파싱', () => {
   assert.equal(splitStages(p).stages.length, 1);
 });
 
-test('이미지 참조 해석', () => {
+test('parses image references', () => {
   assert.deepEqual([parseImageRef('node:22').registry, parseImageRef('node:22').repository], ['docker.io', 'library/node']);
   assert.equal(parseImageRef('localhost:5000/a/b').tag, 'latest');
   assert.equal(parseImageRef('Node:22').ok, false);
@@ -26,13 +26,13 @@ test('이미지 참조 해석', () => {
   assert.equal(parseImageRef('https://x/y').ok, false);
 });
 
-test('템플릿에는 오류와 경고가 없다', () => {
+test('templates have no errors or warnings', () => {
   for (const [name, text] of Object.entries(TEMPLATES)) {
     assert.deepEqual(validate(text).filter((d) => d.severity !== 'info'), [], name);
   }
 });
 
-test('문법 오류를 찾는다', () => {
+test('finds syntax errors', () => {
   const bad = [
     ['FORM alpine', 'unknown'],
     ['FROM alpine:3 AS', 'from-syntax'],
@@ -59,7 +59,7 @@ test('문법 오류를 찾는다', () => {
   }
 });
 
-test('경고: root, 전역 ARG, latest, 비밀값, 없는 사용자', () => {
+test('warns about root, global ARG, latest, secrets and missing users', () => {
   assert.ok(codes('FROM alpine:3\nUSER root').includes('root'));
   assert.ok(codes('ARG V=1\nFROM alpine:3\nENV X=$V').includes('global-arg'));
   assert.ok(codes('FROM alpine').includes('latest'));
@@ -68,7 +68,7 @@ test('경고: root, 전역 ARG, latest, 비밀값, 없는 사용자', () => {
   assert.ok(!codes('FROM alpine:3\nRUN adduser -D svc\nUSER svc').includes('user-missing'));
 });
 
-test('시뮬레이션: ARG/ENV 치환, 상속, build-arg, 명령', () => {
+test('simulation: ARG/ENV expansion, inheritance, build args, command', () => {
   const text = [
     'ARG V=1', 'FROM alpine:${V} AS base', 'ARG V', 'ENV A=$V B=${MISSING:-d}', 'WORKDIR /app', 'WORKDIR sub',
     'CMD ["x"]', 'FROM base', 'ENTRYPOINT ["run"]', 'EXPOSE 80',
@@ -80,17 +80,17 @@ test('시뮬레이션: ARG/ENV 치환, 상속, build-arg, 명령', () => {
   assert.equal(last.env.get('B'), 'd');
   assert.equal(last.workdir, '/app/sub');
   assert.deepEqual([...last.expose], ['80/tcp']);
-  assert.deepEqual(effectiveCommand(last), ['run']); // 상속받은 CMD 는 초기화
+  assert.deepEqual(effectiveCommand(last), ['run']); // the inherited CMD is reset
 });
 
-test('시뮬레이션: 베이스 config 반영과 미사용 스테이지', () => {
+test('simulation: base image config and unused stages', () => {
   const sim = simulate('FROM a:1 AS unused\nFROM b:1', { baseConfigs: { 'b:1': { Env: ['X=1'], User: 'u', Cmd: ['sh'] } } });
   assert.equal(sim.stages[1].state.user, 'u');
   assert.equal(sim.stages[1].state.env.get('X'), '1');
   assert.deepEqual([...sim.used], [1]);
 });
 
-test('설정 추가/수정/삭제는 다른 줄을 보존한다', () => {
+test('adding, changing and removing settings keeps other lines', () => {
   const base = '# c\nFROM alpine:3\nENV A=1 B="two words"\nCMD ["x"]\n';
   assert.equal(ops.setPair(base, 3, 0, null), '# c\nFROM alpine:3\nENV B="two words"\nCMD ["x"]\n');
   assert.match(ops.setPair(base, 3, 1, { key: 'B', value: 'say "hi"' }), /B="say \\"hi\\""/);
@@ -101,14 +101,14 @@ test('설정 추가/수정/삭제는 다른 줄을 보존한다', () => {
   assert.equal(simulate(ops.setPair(base, 3, 1, { key: 'B', value: 'say "hi"' })).stages[0].state.env.get('B'), 'say "hi"');
 });
 
-test('스테이지 이름 변경은 참조도 바꾼다', () => {
+test('renaming a stage updates references', () => {
   const out = ops.setStageFrom('FROM a:1 AS build\nFROM build AS test\nFROM b:1\nCOPY --from=build /x /x\nRUN --mount=type=bind,from=build,target=/m ls\n', 0, { name: 'compile' });
   assert.match(out, /FROM compile AS test/);
   assert.match(out, /--from=compile \/x/);
   assert.match(out, /from=compile,target/);
 });
 
-test('스테이지 분리: 이어받기와 새 베이스', () => {
+test('splits stages: inherited and new base', () => {
   const text = 'FROM node:22\nWORKDIR /app\nRUN build\n# run\nCMD ["x"]\n';
   const chained = ops.splitStage(text, 5, { name: 'runtime' });
   assert.equal(chained, 'FROM node:22 AS build\nWORKDIR /app\nRUN build\n\nFROM build AS runtime\n# run\nCMD ["x"]\n');
@@ -119,7 +119,7 @@ test('스테이지 분리: 이어받기와 새 베이스', () => {
   assert.match(referenced, /COPY --from=y/);
 });
 
-test('번호 참조가 있어도 삭제·추출이 안전하다', () => {
+test('delete and extract are safe with numeric references', () => {
   const text = 'FROM a:1\nRUN unused\n\nFROM b:1\nRUN build\n\nFROM c:1\nCOPY --from=1 /o /o\n';
   const removed = ops.removeStage(text, 0);
   assert.match(removed, /FROM b:1 AS stage1/);
@@ -128,10 +128,10 @@ test('번호 참조가 있어도 삭제·추출이 안전하다', () => {
   const extracted = ops.extractStage(text, 2);
   assert.doesNotMatch(extracted, /unused/);
   assert.deepEqual(codes(extracted, 'error'), []);
-  assert.throws(() => ops.removeStage(text, 1), /삭제할 수 없습니다/);
+  assert.throws(() => ops.removeStage(text, 1), /Cannot delete/);
 });
 
-test('편집해도 heredoc 의 빈 줄과 여러 줄 ENV 모양을 지킨다', () => {
+test('editing keeps heredoc blank lines and multi-line ENV', () => {
   const text = 'FROM a:1\nRUN <<EOF\necho 1\n\n\necho 2\nEOF\nENV A=1 \\\n    B=2\n';
   const out = ops.setPair(text, 8, 1, { key: 'B', value: '3' });
   assert.equal(out, 'FROM a:1\nRUN <<EOF\necho 1\n\n\necho 2\nEOF\nENV A=1 \\\n    B=3\n');
@@ -139,13 +139,13 @@ test('편집해도 heredoc 의 빈 줄과 여러 줄 ENV 모양을 지킨다', (
   assert.match(renamed, /--mount=from=y,target/);
 });
 
-test('레지스트리 확인: 토큰 인증 후 config 읽기, 404, 잘못된 이름', async () => {
+test('registry check: token auth, config, 404, invalid name', async () => {
   const reply = (status, body, headers = {}) => new Response(body === null ? null : JSON.stringify(body), { status, headers });
   const fake = async (url, options = {}) => {
     const u = String(url);
-    if (u.startsWith('https://auth.example/token')) return reply(200, { token: 't' });
+    if (u.startsWith('https://auth.docker.io/token')) return reply(200, { token: 't' });
     if (!options.headers?.Authorization && u.includes('/v2/library/')) {
-      return reply(401, {}, { 'www-authenticate': 'Bearer realm="https://auth.example/token",service="s",scope="x"' });
+      return reply(401, {}, { 'www-authenticate': 'Bearer realm="https://auth.docker.io/token",service="s",scope="x"' });
     }
     if (u.endsWith('/manifests/nope')) return reply(404, null);
     if (u.includes('hub.docker.com')) return reply(200, { results: [{ name: '3.20' }] });
@@ -163,4 +163,24 @@ test('레지스트리 확인: 토큰 인증 후 config 읽기, 404, 잘못된 �
   const missing = await check('alpine:nope');
   assert.deepEqual([missing.status, missing.suggestions], ['not_found', ['3.20']]);
   assert.equal((await check('Bad Name')).status, 'invalid');
+});
+
+test('only known or explicitly added registries are contacted', async () => {
+  let calls = 0;
+  const check = createChecker(async () => { calls++; return new Response(null, { status: 404 }); });
+  for (const ref of ['169.254.169.254/a/b:1', 'localhost:5000/a:1', 'ghcr.io.evil.example/a:1']) {
+    assert.equal((await check(ref)).status, 'blocked', ref);
+  }
+  assert.equal(calls, 0);
+  assert.equal(allowedRegistry('harbor.corp.local', 'harbor.corp.local'), true);
+  assert.equal(allowedRegistry('x.azurecr.io', ''), true);
+
+  // A registry cannot send the token request to another host.
+  const seen = [];
+  const redirecting = createChecker(async (url) => {
+    seen.push(new URL(url).host);
+    return new Response(null, { status: 401, headers: { 'www-authenticate': 'Bearer realm="https://internal.example/token"' } });
+  });
+  await redirecting('ghcr.io/a/b:1');
+  assert.ok(!seen.includes('internal.example'));
 });

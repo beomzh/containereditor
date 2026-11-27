@@ -1,4 +1,4 @@
-// Dockerfile / Containerfile 파서. 줄 번호는 모두 1부터 시작한다.
+// Dockerfile / Containerfile parser. Line numbers start at 1.
 
 export const INSTRUCTIONS = [
   'FROM', 'RUN', 'CMD', 'LABEL', 'MAINTAINER', 'EXPOSE', 'ENV', 'ADD', 'COPY',
@@ -17,7 +17,7 @@ export function parse(text) {
   let escape = '\\';
   let i = 0;
 
-  // 파서 지시어는 파일 맨 위에서만 유효하다.
+  // Parser directives are only valid at the very top of the file.
   for (; i < lines.length; i++) {
     const m = lines[i].match(/^#\s*([a-zA-Z]+)\s*=\s*(\S+)\s*$/);
     if (!m) break;
@@ -27,7 +27,7 @@ export function parse(text) {
     comments.push({ line: i + 1, text: lines[i] });
     if (key === 'escape') {
       if (m[2] === '\\' || m[2] === '`') escape = m[2];
-      else issues.push({ line: i + 1, message: `escape 지시어는 \\ 또는 \` 만 가능합니다: ${m[2]}` });
+      else issues.push({ line: i + 1, key: 'parse.escape', params: { value: m[2] } });
     }
   }
 
@@ -56,7 +56,7 @@ export function parse(text) {
       const t = line.trim();
       if (open && t.startsWith('#')) { comments.push({ line: i + 1, text: line }); i++; continue; }
       if (open && t === '') {
-        issues.push({ line: i + 1, severity: 'warning', message: '줄 이음(\\) 중간에 빈 줄이 있습니다. 최신 빌더에서 오류가 될 수 있습니다.' });
+        issues.push({ line: i + 1, severity: 'warning', key: 'parse.emptyContinuation' });
         i++;
         continue;
       }
@@ -70,7 +70,7 @@ export function parse(text) {
         break;
       }
     }
-    if (open) issues.push({ line: i, message: '파일이 줄 이음 문자로 끝났습니다.' });
+    if (open) issues.push({ line: i, key: 'parse.eofContinuation' });
 
     const m = logical.trim().match(/^(\S+)(?:\s+([\s\S]*))?$/);
     if (!m) continue;
@@ -91,7 +91,7 @@ export function parse(text) {
           if (body === doc.name) { closed = true; break; }
           doc.lines.push(body);
         }
-        if (!closed) issues.push({ line: startLine, message: `heredoc 종료 표시 "${doc.name}" 를 찾을 수 없습니다.` });
+        if (!closed) issues.push({ line: startLine, key: 'parse.heredoc', params: { name: doc.name } });
       }
     }
 
@@ -105,7 +105,7 @@ export function parse(text) {
   return { instructions, comments, directives, issues, escape, lines };
 }
 
-// FROM 앞의 전역 ARG 와 스테이지 목록으로 나눈다.
+// Splits into global ARGs (before FROM) and stages.
 export function splitStages(parsed) {
   const globals = [];
   const stages = [];
@@ -118,7 +118,7 @@ export function splitStages(parsed) {
       stages[stages.length - 1].instructions.push(ins);
     }
   }
-  // 스테이지 범위: FROM 바로 위에 붙은 주석부터 다음 스테이지 직전까지.
+  // A stage spans from the comments right above its FROM to the next stage.
   const commentLines = new Set(parsed.comments.map((c) => c.line));
   for (const stage of stages) {
     let start = stage.from.startLine;
@@ -151,7 +151,7 @@ export function parseFrom(args) {
   return { image, name, platform, flags, malformed };
 }
 
-// 따옴표와 이스케이프를 고려해 공백으로 나눈다. raw 는 원문 토큰, value 는 따옴표를 벗긴 값.
+// Splits on whitespace, honouring quotes and escapes. raw is the source token, value is unquoted.
 export function tokenize(args, escape = '\\') {
   const tokens = [];
   let raw = '';
@@ -163,7 +163,7 @@ export function tokenize(args, escape = '\\') {
     if (c === escape && quote !== "'" && i + 1 < args.length) {
       const next = args[i + 1];
       raw += c + next;
-      // $ 이스케이프는 변수 치환 단계에서 처리하도록 남긴다.
+      // Keep escaped $ for the variable expansion step.
       if (next === '$') value += '\\$';
       else if (quote === '"' && next !== '"' && next !== escape) value += c + next;
       else value += next;
@@ -189,7 +189,7 @@ export function tokenize(args, escape = '\\') {
   return { tokens, unterminated: quote !== null };
 }
 
-// ENV / LABEL / ARG 의 key=value 목록.
+// key=value list of ENV / LABEL / ARG.
 export function parsePairs(ins, escape = '\\') {
   const { tokens, unterminated } = tokenize(ins.args, escape);
   if (tokens.length === 0) return { pairs: [], legacy: false, unterminated };
@@ -210,7 +210,7 @@ export function parsePairs(ins, escape = '\\') {
   return { pairs, legacy: false, unterminated };
 }
 
-// 앞쪽의 --flag 들을 떼어낸다.
+// Strips leading --flags.
 export function splitFlags(args) {
   const flags = [];
   let rest = args.trim();
@@ -222,18 +222,18 @@ export function splitFlags(args) {
   return { flags, rest };
 }
 
-// exec 형식(JSON 배열)인지 판별한다.
+// Detects the exec (JSON array) form.
 export function parseExecForm(args) {
   const t = args.trim();
   if (!t.startsWith('[')) return { form: 'shell', value: t };
   try {
     const value = JSON.parse(t);
     if (Array.isArray(value) && value.every((v) => typeof v === 'string')) return { form: 'exec', value };
-    return { form: 'invalid', value: t, reason: '배열 원소는 모두 문자열이어야 합니다.' };
+    return { form: 'invalid', value: t, reason: 'diag.jsonStrings' };
   } catch {
-    // `[ -f x ] && ...` 같은 셸 test 구문은 정상적인 shell 형식이다.
+    // Shell tests such as `[ -f x ] && ...` are a valid shell form.
     if (/^\[\s*["']/.test(t) || /^\[\s*\]$/.test(t)) {
-      return { form: 'invalid', value: t, reason: 'JSON 배열 문법이 아닙니다. 큰따옴표(")를 쓰고 쉼표를 확인하세요.' };
+      return { form: 'invalid', value: t, reason: 'diag.jsonSyntax' };
     }
     return { form: 'shell', value: t };
   }
