@@ -1,5 +1,9 @@
-dockereditor
+containereditor
 Copyright 2026 beomzh
 
 This product is licensed under the Apache License, Version 2.0.
 See the LICENSE file for the full text.
+
+Third-party software:
+- yaml (https://github.com/eemeli/yaml), Copyright Eemeli Aro, ISC License.
+  The full license text is in node_modules/yaml/LICENSE.

@@ -2,14 +2,18 @@
 
 ## Development
 
-Node.js 22 or later. There is nothing to install.
+Node.js 22 or later.
+
+```bash
+npm ci
+```
 
 ```bash
 npm test
 ```
 
 ```bash
-node bin/dockereditor.js serve --allow-build
+node bin/containereditor.js serve --allow-build
 ```
 
 ## Layout
@@ -32,6 +36,6 @@ node bin/dockereditor.js serve --allow-build
 ## Rules
 
 - Messages go in `public/core/i18n.js` with all four languages (a test enforces it).
-- No third-party runtime dependencies.
+- Avoid third-party runtime dependencies. The only one is `yaml`; discuss before adding another and update NOTICE.
 - Anything that runs commands, writes files or accepts requests needs a test and must keep [SECURITY.md](SECURITY.md) true.
 - Contributions are licensed under Apache-2.0.

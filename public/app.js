@@ -9,7 +9,7 @@ import { createBuildPanel } from './build-panel.js';
 
 const $ = (id) => document.getElementById(id);
 const source = $('source');
-const STORE = 'dockereditor.v1';
+const STORE = 'containereditor.v1';
 let lang = 'en';
 const t = (key, params) => translate(lang, key, params);
 

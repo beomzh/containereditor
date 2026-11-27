@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Container Editor · Kubernetes</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="k8s.css">
+</head>
+<body>
+  <header>
+    <strong data-i18n="ui.title">Container Editor</strong>
+    <nav id="pages" data-i18n-label="k8s.ui.pages">
+      <a href="./">Dockerfile</a>
+      <a href="k8s.html" aria-current="page">Kubernetes</a>
+    </nav>
+    <select id="new" data-i18n-label="ui.new" disabled></select>
+    <button id="open" data-i18n="ui.open" disabled>Open</button>
+    <button id="save" data-i18n="ui.save" disabled>Save</button>
+    <input id="filename" value="k8s.yaml" spellcheck="false" data-i18n-label="ui.fileName">
+    <button id="undo" data-i18n="ui.undo" disabled>Undo</button>
+    <button id="redo" data-i18n="ui.redo" disabled>Redo</button>
+    <span class="spacer"></span>
+    <button id="check" class="primary" data-i18n="k8s.ui.check" disabled>Check images</button>
+    <select id="language" data-i18n-label="ui.language"></select>
+    <input id="file" type="file" accept=".yaml,.yml,.json,text/yaml,application/yaml" hidden>
+  </header>
+
+  <main>
+    <section id="left"></section>
+
+    <section id="center">
+      <div id="notice" role="status" data-i18n="k8s.ui.secretNotSaved" hidden></div>
+      <div id="editor">
+        <pre id="gutter" aria-hidden="true"></pre>
+        <div id="code">
+          <pre id="highlight" aria-hidden="true"></pre>
+          <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" data-i18n-label="k8s.ui.content" disabled></textarea>
+        </div>
+      </div>
+      <div id="problems">
+        <div id="summary" role="status"></div>
+        <ul id="diagnostics"></ul>
+      </div>
+    </section>
+
+    <section id="side">
+      <div class="panel">
+        <div id="overview"></div>
+        <div id="images"></div>
+        <div id="dockerfile"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" role="alert" hidden></div>
+  <script type="module" src="k8s.js"></script>
+</body>
+</html>

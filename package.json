@@ -1,19 +1,19 @@
 {
-  "name": "dockereditor",
-  "version": "0.2.0",
+  "name": "containereditor",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Visual editor and CLI for Dockerfile / Containerfile: validate, check base images, preview and build.",
+  "description": "Visual editor and CLI for Dockerfile / Containerfile and Kubernetes YAML.",
   "license": "Apache-2.0",
   "author": "beomzh",
-  "homepage": "https://github.com/beomzh/dockereditor#readme",
+  "homepage": "https://github.com/beomzh/containereditor#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/beomzh/dockereditor.git"
+    "url": "git+https://github.com/beomzh/containereditor.git"
   },
-  "bugs": "https://github.com/beomzh/dockereditor/issues",
+  "bugs": "https://github.com/beomzh/containereditor/issues",
   "bin": {
-    "dockereditor": "bin/dockereditor.js"
+    "containereditor": "bin/containereditor.js"
   },
   "files": [
     "bin",
@@ -28,5 +28,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
   }
 }

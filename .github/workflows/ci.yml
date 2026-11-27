@@ -25,11 +25,14 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
+      - run: npm ci --ignore-scripts
       - run: npm test
       - name: CLI smoke test
         run: |
-          node bin/dockereditor.js new node -o Dockerfile.smoke
-          node bin/dockereditor.js validate Dockerfile.smoke --strict
+          node bin/containereditor.js new node -o Dockerfile.smoke
+          node bin/containereditor.js validate Dockerfile.smoke --strict
+          node bin/containereditor.js k8s new Deployment -o smoke.yaml
+          node bin/containereditor.js k8s validate smoke.yaml --strict
 
   build-linux:
     name: real build (${{ matrix.os }})
@@ -45,15 +48,16 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      - run: npm ci --ignore-scripts
       - name: Build all three output types
         run: |
           mkdir smoke && cd smoke
           echo hello > a.txt
           printf 'FROM alpine:3.22\nCOPY a.txt /a.txt\nUSER 1000\n' > Dockerfile
-          node ../bin/dockereditor.js check
-          node ../bin/dockereditor.js build --tag smoke:ci
-          node ../bin/dockereditor.js build --tag smoke:ci --output archive --dest out/image.tar
-          node ../bin/dockereditor.js build --output folder --dest rootfs
+          node ../bin/containereditor.js check
+          node ../bin/containereditor.js build --tag smoke:ci
+          node ../bin/containereditor.js build --tag smoke:ci --output archive --dest out/image.tar
+          node ../bin/containereditor.js build --output folder --dest rootfs
           test -s out/image.tar
           grep -qx hello rootfs/a.txt
 
@@ -70,14 +74,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the editor image
-        run: docker build -t dockereditor .
+        run: docker build -t containereditor .
       - name: Command line and web editor
         run: |
           mkdir smoke && cd smoke
-          run() { docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor "$@"; }
+          run() { docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" containereditor "$@"; }
           run new node
           run validate --strict
-          docker run -d --init --name editor -p 127.0.0.1:4173:4173 dockereditor
+          docker run -d --init --name editor -p 127.0.0.1:4173:4173 containereditor
           curl -fsS --retry 10 --retry-delay 1 --retry-all-errors -o /dev/null http://localhost:4173/
           docker rm -f editor
       - name: Build through the mounted socket
@@ -87,7 +91,7 @@ jobs:
           printf 'FROM alpine:3.22\nCOPY a.txt /a.txt\n' > Dockerfile
           run() {
             docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" \
-              -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" dockereditor "$@"
+              -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" containereditor "$@"
           }
           run build --tag smoke:ci
           run build --tag smoke:ci --output archive --dest out/image.tar
@@ -106,6 +110,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      - run: npm ci --ignore-scripts
       - name: Show the Docker daemon
         run: |
           docker version
@@ -118,7 +123,7 @@ jobs:
           Set-Location smoke
           Set-Content a.txt hello
           Set-Content Dockerfile "# escape=```nFROM mcr.microsoft.com/windows/nanoserver:ltsc2025`nCOPY a.txt C:\a.txt`nUSER ContainerUser"
-          node ..\bin\dockereditor.js check --platform windows/amd64
-          node ..\bin\dockereditor.js build --tag smoke:ci --platform windows/amd64
-          node ..\bin\dockereditor.js build --tag smoke:ci --output archive --dest out\image.tar
+          node ..\bin\containereditor.js check --platform windows/amd64
+          node ..\bin\containereditor.js build --tag smoke:ci --platform windows/amd64
+          node ..\bin\containereditor.js build --tag smoke:ci --output archive --dest out\image.tar
           if (-not (Test-Path out\image.tar)) { throw 'archive missing' }

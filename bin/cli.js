@@ -14,6 +14,7 @@ import { translator, normalizeLang, LocalizedError } from '../public/core/i18n.j
 import { createChecker } from '../server/registry.js';
 import { detectEngine, planBuild, runBuild, commandLines } from '../server/builder.js';
 import { serve } from '../server/server.js';
+import { k8sCommand } from './k8s-cli.js';
 
 const OPTIONS = {
   lang: { type: 'string' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
@@ -23,6 +24,7 @@ const OPTIONS = {
   out: { type: 'string', short: 'o' }, name: { type: 'string' }, base: { type: 'string' }, copy: { type: 'string' }, line: { type: 'string' },
   context: { type: 'string' }, output: { type: 'string' }, tag: { type: 'string', short: 't' }, dest: { type: 'string' },
   engine: { type: 'string' }, 'dry-run': { type: 'boolean' },
+  dockerfile: { type: 'string' }, doc: { type: 'string' },
   port: { type: 'string' }, 'allow-build': { type: 'boolean' }, workspace: { type: 'string' },
 };
 const PAIRED = ['ARG', 'ENV', 'LABEL'];
@@ -36,7 +38,7 @@ export async function main(argv, io = {}) {
     env = process.env,
     checkImage = createChecker(),
   } = io;
-  let lang = normalizeLang(env.DOCKEREDITOR_LANG);
+  let lang = normalizeLang(env.CONTAINEREDITOR_LANG);
   let t = translator(lang);
   const usage = () => t('cli.usage', { templates: Object.keys(TEMPLATES).join(', ') });
 
@@ -49,7 +51,7 @@ export async function main(argv, io = {}) {
     return 2;
   }
   const { values, positionals } = args;
-  lang = normalizeLang(values.lang ?? env.DOCKEREDITOR_LANG);
+  lang = normalizeLang(values.lang ?? env.CONTAINEREDITOR_LANG);
   t = translator(lang);
   const [command, ...rest] = positionals;
 
@@ -116,7 +118,14 @@ export async function main(argv, io = {}) {
   };
   const count = (list, severity) => list.filter((d) => d.severity === severity).length;
 
+  const writeBack = async (file, result) => {
+    await writeFile(file.full, file.original.includes('\r\n') ? result.replace(/\n/g, '\r\n') : result);
+    out(t('cli.written', { path: file.name }));
+  };
+
   const commands = {
+    k8s: () => k8sCommand(rest, { values: { ...values, lang }, t, out, err, raw, cwd, load, writeNew, writeBack, checkImage, need }),
+
     async validate() {
       const file = await load(rest[0]);
       const { diagnostics } = await analyze(file.text, values.online);
@@ -350,8 +359,7 @@ export async function main(argv, io = {}) {
     const file = await load(need(path, 'file'));
     const result = change(file.text, (text = file.text) => stageIndex(text));
     if (values.stdout) { raw(result); return 0; }
-    await writeFile(file.full, file.original.includes('\r\n') ? result.replace(/\n/g, '\r\n') : result);
-    out(t('cli.written', { path: file.name }));
+    await writeBack(file, result);
     return 0;
   }
 
