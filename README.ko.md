@@ -4,29 +4,84 @@
 
 **Dockerfile / Containerfile** 을 만들고 고치고, 검사하고, 결과 이미지를 미리 보고, 빌드합니다. 웹과 명령줄 모두 지원하며 외부 패키지를 쓰지 않습니다.
 
-## 설치
+## 빠른 시작
 
-Node.js 22 이상이 필요합니다. 빌드에는 Docker 또는 Podman 이 필요합니다.
+Docker 만 설치되어 실행 중이면 됩니다. Linux, macOS, Windows 모두 명령이 같습니다.
+
+### 1. 에디터 받기 (한 번만)
+
+```bash
+docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
+```
+
+1분 정도 걸립니다. 내려받거나 clone 할 것은 없습니다.
+
+### 2. 실행하기
+
+```bash
+docker run --rm --init -p 127.0.0.1:4173:4173 dockereditor
+```
+
+이 터미널은 켜 두세요. `Ctrl+C` 를 누르면 종료됩니다.
+
+### 3. 브라우저에서 열기
+
+**http://localhost:4173/?lang=ko** 에 접속하면 예제 Dockerfile 이 들어 있습니다.
+
+- **열기**로 내 Dockerfile 을 불러오거나 가운데에 직접 씁니다.
+- **① 이미지 확인**은 `FROM` 이미지가 실제로 있는지 알려줍니다.
+- 오른쪽에서 이미지가 어떻게 만들어지는지 봅니다.
+- **저장**을 누르면 파일이 내려받아집니다.
+
+### 안 될 때
+
+| 보이는 메시지 | 해결 |
+|---|---|
+| `Cannot connect to the Docker daemon` | Docker 를 실행하세요. Linux 에서 `permission denied` 면 `sudo docker …` 로 실행 |
+| `port is already allocated` / `address already in use` | 다른 포트 사용: `-p 127.0.0.1:8080:4173` 후 http://localhost:8080 접속 |
+| 페이지가 안 열림 | 2번의 터미널이 계속 실행 중인지 확인 |
+
+## 선택: 내 폴더의 파일로 작업하기
+
+현재 폴더의 `Dockerfile` 검사:
+
+```bash
+docker run --rm -v "$PWD:/work" dockereditor validate --lang ko
+```
+
+**에디터에서 빌드하기.** Linux:
+
+```bash
+docker run --rm --init -p 127.0.0.1:4173:4173 \
+  -v "$PWD:/work" --user "$(id -u):$(id -g)" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$(stat -c %g /var/run/docker.sock)" \
+  dockereditor serve --allow-build --lang ko
+```
+
+Docker Desktop 을 쓰는 macOS·Windows (PowerShell 은 한 줄로 쓰고 `${PWD}` 사용):
+
+```bash
+docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker.sock:/var/run/docker.sock --group-add 0 dockereditor serve --allow-build --lang ko
+```
+
+출력된 주소를 `#token=…` 까지 통째로 열고 **② 빌드** 탭을 씁니다. 결과물은 **로컬 이미지** 또는 **이미지 파일 (.tar)** 을 고르세요.
+
+> **Docker 소켓은 호스트 전체를 제어할 수 있습니다.** 빌드할 때만 마운트하고 신뢰하는 파일만 빌드하세요. `-p` 의 `127.0.0.1:` 을 빼면 같은 네트워크의 다른 사람이 접속할 수 있습니다.
+
+## Docker 없이 쓰기 (npm)
+
+Node.js 22 이상이 필요합니다.
 
 ```bash
 npm install -g github:beomzh/dockereditor#v0.2.0
 ```
 
-## 빠른 시작
-
 ```bash
-dockereditor new node --lang ko
+dockereditor serve --lang ko
 ```
 
-```bash
-dockereditor validate --lang ko
-```
-
-```bash
-dockereditor serve --allow-build --lang ko
-```
-
-출력된 주소를 엽니다. 가운데에서 작성하고, **① 이미지 확인**, **② 빌드** 순서로 씁니다.
+그다음 http://localhost:4173 을 엽니다. 다른 명령은 [명령줄](#명령줄)을 보세요.
 
 ## 웹 에디터
 

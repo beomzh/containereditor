@@ -4,6 +4,19 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+Compared with 0.2.0: the editor can now run with Docker alone. Impact: optional
+
+### Security
+- **Container mode listens on all container interfaces.** Outside a container nothing changes. Publish the port on `127.0.0.1` only; see `SECURITY.md`.
+
+### Added
+- **`Dockerfile` for the editor itself**: web editor and command line without Node.js or npm, with a Docker quick start in four languages.
+- **Step-by-step quick start** in the README, with a troubleshooting table.
+- **Result path hint** inside the container: `/work` is the mounted folder.
+- `serve` now exits promptly on Ctrl+C or `docker stop`.
+
+Known limit: folder output fails on Docker Desktop bind mounts; use archive output there.
+
 ## [0.2.0] - 2026-11-27
 
 Compared with 0.1.0: real builds, a command line, platform compatibility checks, four languages with English as the default, and project security files. Impact: optional

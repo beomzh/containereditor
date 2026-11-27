@@ -57,6 +57,44 @@ jobs:
           test -s out/image.tar
           grep -qx hello rootfs/a.txt
 
+  container:
+    # The documented Docker quick start, with bind mounts on Linux.
+    name: editor image (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the editor image
+        run: docker build -t dockereditor .
+      - name: Command line and web editor
+        run: |
+          mkdir smoke && cd smoke
+          run() { docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor "$@"; }
+          run new node
+          run validate --strict
+          docker run -d --init --name editor -p 127.0.0.1:4173:4173 dockereditor
+          curl -fsS --retry 10 --retry-delay 1 --retry-all-errors -o /dev/null http://localhost:4173/
+          docker rm -f editor
+      - name: Build through the mounted socket
+        run: |
+          cd smoke
+          echo hello > a.txt
+          printf 'FROM alpine:3.22\nCOPY a.txt /a.txt\n' > Dockerfile
+          run() {
+            docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" \
+              -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" dockereditor "$@"
+          }
+          run build --tag smoke:ci
+          run build --tag smoke:ci --output archive --dest out/image.tar
+          run build --output folder --dest rootfs
+          test -s out/image.tar
+          grep -qx hello rootfs/a.txt
+
   build-windows:
     # Windows arm64 runners have no Docker, so real Windows builds run on amd64 only.
     name: real build (windows amd64)
