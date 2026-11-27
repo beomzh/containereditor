@@ -1,0 +1,14 @@
+{
+  "name": "dockereditor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dockerfile / Containerfile 시각 편집기",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

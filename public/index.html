@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dockerfile 에디터</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <strong>Dockerfile 에디터</strong>
+    <input id="filename" value="Dockerfile" aria-label="파일 이름" spellcheck="false">
+    <button id="open">열기</button>
+    <button id="save">저장</button>
+    <button id="undo">되돌리기</button>
+    <button id="redo">다시 실행</button>
+    <select id="template" aria-label="템플릿"><option value="">템플릿…</option></select>
+    <span class="spacer"></span>
+    <label>플랫폼
+      <select id="platform">
+        <option>linux/amd64</option>
+        <option>linux/arm64</option>
+        <option>linux/arm/v7</option>
+      </select>
+    </label>
+    <button id="check" class="primary">FROM 확인</button>
+    <input id="file" type="file" hidden>
+  </header>
+
+  <main>
+    <section id="left" aria-label="스테이지와 설정"></section>
+
+    <section id="center" aria-label="편집기">
+      <div id="editor">
+        <pre id="gutter" aria-hidden="true"></pre>
+        <div id="code">
+          <pre id="highlight" aria-hidden="true"></pre>
+          <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Dockerfile 내용"></textarea>
+        </div>
+      </div>
+      <div id="problems">
+        <div id="summary" role="status"></div>
+        <ul id="diagnostics"></ul>
+      </div>
+    </section>
+
+    <section id="right" aria-label="결과 미리보기"></section>
+  </main>
+
+  <div id="toast" role="alert" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

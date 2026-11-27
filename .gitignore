@@ -1,0 +1,20 @@
+# Local notes and tool settings
+PROMPT.md
+.claude/
+
+# Local config and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Output and dependencies
+node_modules/
+/out/
+*.tar
+coverage/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
