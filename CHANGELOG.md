@@ -11,6 +11,7 @@ Compared with 0.2.0: the editor can now run with Docker alone. Impact: optional
 
 ### Added
 - **`Dockerfile` for the editor itself**: web editor and command line without Node.js or npm, with a Docker quick start in four languages.
+- **Step-by-step quick start** in the README, with a troubleshooting table.
 - **Result path hint** inside the container: `/work` is the mounted folder.
 - `serve` now exits promptly on Ctrl+C or `docker stop`.
 

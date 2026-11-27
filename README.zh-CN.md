@@ -4,73 +4,84 @@
 
 编写和修改 **Dockerfile / Containerfile**，检查语法，预览最终镜像并执行构建。支持网页和命令行，不依赖第三方包。
 
-## 用 Docker 快速开始（无需 Node.js 或 npm）
+## 快速开始
 
-直接从 GitHub 构建一次镜像：
+只需安装并运行 Docker。Linux、macOS、Windows 命令相同。
+
+### 1. 获取编辑器（只需一次）
 
 ```bash
 docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
 ```
 
-在项目目录中运行，然后打开 http://localhost:4173 ：
+大约需要一分钟，无需下载或克隆任何内容。
+
+### 2. 启动
 
 ```bash
-docker run --rm -it --init -p 127.0.0.1:4173:4173 \
-  -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor serve --lang zh
+docker run --rm --init -p 127.0.0.1:4173:4173 dockereditor
 ```
 
-Windows PowerShell：
+保持此终端打开。按 `Ctrl+C` 停止。
 
-```powershell
-docker run --rm -it --init -p 127.0.0.1:4173:4173 -v "${PWD}:/work" dockereditor serve --lang zh
-```
+### 3. 在浏览器中打开
 
-用同一镜像执行命令行：
+访问 **http://localhost:4173/?lang=zh**，其中已有一个示例 Dockerfile。
+
+- 用 **打开** 载入自己的 Dockerfile，或直接在中间编写。
+- **① 检查镜像** 会告诉你 `FROM` 镜像是否存在。
+- 右侧显示镜像的最终样子。
+- **保存** 会下载文件。
+
+### 遇到问题时
+
+| 看到的信息 | 解决办法 |
+|---|---|
+| `Cannot connect to the Docker daemon` | 启动 Docker。Linux 上出现 `permission denied` 时使用 `sudo docker …` |
+| `port is already allocated` / `address already in use` | 换端口：`-p 127.0.0.1:8080:4173`，然后访问 http://localhost:8080 |
+| 页面打不开 | 确认第 2 步的终端仍在运行 |
+
+## 可选：处理本地目录中的文件
+
+检查当前目录的 `Dockerfile`：
 
 ```bash
-docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor validate --lang zh
+docker run --rm -v "$PWD:/work" dockereditor validate --lang zh
 ```
 
-如需在编辑器中构建，还要挂载 Docker 套接字，并打开输出的网址：
+**在编辑器中构建。** Linux：
 
 ```bash
-docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+docker run --rm --init -p 127.0.0.1:4173:4173 \
   -v "$PWD:/work" --user "$(id -u):$(id -g)" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
   dockereditor serve --allow-build --lang zh
 ```
 
-> **Docker 套接字可以完全控制宿主机。** 仅在需要构建时挂载，并且只构建可信文件。
+使用 Docker Desktop 的 macOS、Windows（PowerShell 请写成一行并使用 `${PWD}`）：
 
-- 请保留 `-p` 中的 `127.0.0.1:`，否则同一网络的其他人可以访问编辑器。
-- 结果路径显示为 `/work/...`，`/work` 即你挂载的目录。
-- 在 Docker Desktop（macOS、Windows）上请使用 `--group-add 0`；`folder` 输出在挂载目录上会失败，请改用 `--output archive`。
-- 此镜像只能构建 Linux 镜像。
+```bash
+docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker.sock:/var/run/docker.sock --group-add 0 dockereditor serve --allow-build --lang zh
+```
 
-## 安装 (npm)
+完整打开输出的网址（以 `#token=…` 结尾），然后使用 **② 构建** 标签页。结果请选择 **本地镜像** 或 **镜像文件 (.tar)**。
 
-需要 Node.js 22 或更高版本。构建还需要 Docker 或 Podman。
+> **Docker 套接字可以完全控制宿主机。** 仅在构建时挂载，且只构建可信文件。请保留 `-p` 中的 `127.0.0.1:`，否则同一网络的其他人可以访问。
+
+## 不用 Docker（npm）
+
+需要 Node.js 22 或更高版本。
 
 ```bash
 npm install -g github:beomzh/dockereditor#v0.2.0
 ```
 
-## 用 npm 快速开始
-
 ```bash
-dockereditor new node --lang zh
+dockereditor serve --lang zh
 ```
 
-```bash
-dockereditor validate --lang zh
-```
-
-```bash
-dockereditor serve --allow-build --lang zh
-```
-
-打开输出的网址。在中间编写，然后依次点击 **① 检查镜像** 和 **② 构建**。
+然后打开 http://localhost:4173。其他命令见[命令行](#命令行)。
 
 ## 网页编辑器
 

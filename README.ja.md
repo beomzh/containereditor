@@ -4,73 +4,84 @@
 
 **Dockerfile / Containerfile** を作成・編集し、検査し、できあがるイメージを確認してビルドします。Web とコマンドラインの両方で使え、外部パッケージは不要です。
 
-## Docker でクイックスタート (Node.js・npm 不要)
+## クイックスタート
 
-GitHub から直接イメージを一度ビルドします:
+Docker がインストールされ起動していれば使えます。Linux、macOS、Windows で同じコマンドです。
+
+### 1. エディターを用意する (一度だけ)
 
 ```bash
 docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
 ```
 
-プロジェクトのフォルダーで実行し、http://localhost:4173 を開きます:
+1 分ほどかかります。ダウンロードや clone は不要です。
+
+### 2. 起動する
 
 ```bash
-docker run --rm -it --init -p 127.0.0.1:4173:4173 \
-  -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor serve --lang ja
+docker run --rm --init -p 127.0.0.1:4173:4173 dockereditor
 ```
 
-Windows PowerShell:
+このターミナルは開いたままにします。`Ctrl+C` で終了します。
 
-```powershell
-docker run --rm -it --init -p 127.0.0.1:4173:4173 -v "${PWD}:/work" dockereditor serve --lang ja
-```
+### 3. ブラウザーで開く
 
-同じイメージでコマンドラインを使う:
+**http://localhost:4173/?lang=ja** にアクセスすると、サンプルの Dockerfile が入っています。
+
+- **開く** で自分の Dockerfile を読み込むか、中央に直接書きます。
+- **① イメージ確認** で `FROM` のイメージが存在するか分かります。
+- 右側でイメージの仕上がりを確認します。
+- **保存** でファイルをダウンロードします。
+
+### うまくいかないとき
+
+| 表示されるメッセージ | 対処 |
+|---|---|
+| `Cannot connect to the Docker daemon` | Docker を起動します。Linux で `permission denied` なら `sudo docker …` |
+| `port is already allocated` / `address already in use` | 別のポートを使います: `-p 127.0.0.1:8080:4173` とし http://localhost:8080 を開く |
+| ページが開かない | 手順 2 のターミナルが実行中か確認 |
+
+## 任意: 手元のフォルダーのファイルを扱う
+
+現在のフォルダーの `Dockerfile` を検査:
 
 ```bash
-docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor validate --lang ja
+docker run --rm -v "$PWD:/work" dockereditor validate --lang ja
 ```
 
-エディターからビルドするには Docker ソケットもマウントし、表示された URL を開きます:
+**エディターからビルドする。** Linux:
 
 ```bash
-docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+docker run --rm --init -p 127.0.0.1:4173:4173 \
   -v "$PWD:/work" --user "$(id -u):$(id -g)" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
   dockereditor serve --allow-build --lang ja
 ```
 
-> **Docker ソケットはホスト全体を操作できます。** ビルドが必要なときだけマウントし、信頼できるファイルだけをビルドしてください。
+Docker Desktop の macOS・Windows (PowerShell は 1 行にして `${PWD}` を使う):
 
-- `-p` の `127.0.0.1:` は外さないでください。外すと同じネットワークの他の人がアクセスできます。
-- 結果のパスは `/work/...` と表示されます。`/work` はマウントしたフォルダーです。
-- Docker Desktop (macOS、Windows) では `--group-add 0` を使い、`folder` 出力はマウントしたフォルダーで失敗するため `--output archive` を使ってください。
-- このイメージでビルドできるのは Linux イメージのみです。
+```bash
+docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker.sock:/var/run/docker.sock --group-add 0 dockereditor serve --allow-build --lang ja
+```
 
-## インストール (npm)
+表示された URL を `#token=…` まで丸ごと開き、**② ビルド** タブを使います。出力は **ローカルイメージ** か **イメージファイル (.tar)** を選んでください。
 
-Node.js 22 以上が必要です。ビルドには Docker か Podman も必要です。
+> **Docker ソケットはホスト全体を操作できます。** ビルド時だけマウントし、信頼できるファイルのみビルドしてください。`-p` の `127.0.0.1:` を外すと同じネットワークの他の人がアクセスできます。
+
+## Docker を使わない場合 (npm)
+
+Node.js 22 以上が必要です。
 
 ```bash
 npm install -g github:beomzh/dockereditor#v0.2.0
 ```
 
-## npm でクイックスタート
-
 ```bash
-dockereditor new node --lang ja
+dockereditor serve --lang ja
 ```
 
-```bash
-dockereditor validate --lang ja
-```
-
-```bash
-dockereditor serve --allow-build --lang ja
-```
-
-表示された URL を開きます。中央で編集し、**① イメージ確認**、**② ビルド** の順に使います。
+その後 http://localhost:4173 を開きます。他のコマンドは[コマンドライン](#コマンドライン)を参照してください。
 
 ## Web エディター
 

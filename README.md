@@ -7,83 +7,84 @@ English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本�
 
 Write and edit a **Dockerfile / Containerfile**, check it, see what the image will look like, and build it — in the browser or from the command line. No third-party packages.
 
-## Quick start with Docker (no Node.js or npm)
+## Quick start
 
-Build the image once, straight from GitHub:
+You only need Docker, installed and running. The commands are the same on Linux, macOS and Windows.
+
+### 1. Get the editor (once)
 
 ```bash
 docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
 ```
 
-Run in your project folder, then open http://localhost:4173:
+It takes a minute or so. You do not need to download or clone anything.
+
+### 2. Start it
 
 ```bash
-docker run --rm -it --init -p 127.0.0.1:4173:4173 \
-  -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor
+docker run --rm --init -p 127.0.0.1:4173:4173 dockereditor
 ```
 
-Windows PowerShell:
+Leave this terminal open. `Ctrl+C` stops the editor.
 
-```powershell
-docker run --rm -it --init -p 127.0.0.1:4173:4173 -v "${PWD}:/work" dockereditor
-```
+### 3. Open it in your browser
 
-Command line, same image:
+Go to **http://localhost:4173**. A sample Dockerfile is already there.
+
+- **Open** loads your own Dockerfile; or just type in the middle.
+- **① Check images** tells you whether each `FROM` image exists.
+- The right side shows what the image will look like.
+- **Save** downloads the file.
+
+### If it does not work
+
+| What you see | What to do |
+|---|---|
+| `Cannot connect to the Docker daemon` | Start Docker. On Linux, `permission denied` means: use `sudo docker …` |
+| `port is already allocated` / `address already in use` | Use another port: `-p 127.0.0.1:8080:4173`, then open http://localhost:8080 |
+| The page does not load | Check that the terminal from step 2 is still running |
+
+## Optional: work with files in your folder
+
+Check the `Dockerfile` in the current folder:
 
 ```bash
-docker run --rm -v "$PWD:/work" --user "$(id -u):$(id -g)" dockereditor validate
+docker run --rm -v "$PWD:/work" dockereditor validate
 ```
 
-To build from the editor, also mount the Docker socket and open the URL it prints:
+**Build from the editor.** Linux:
 
 ```bash
-docker run --rm -it --init -p 127.0.0.1:4173:4173 \
+docker run --rm --init -p 127.0.0.1:4173:4173 \
   -v "$PWD:/work" --user "$(id -u):$(id -g)" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
   dockereditor serve --allow-build
 ```
 
-> **The Docker socket gives full control of the host.** Mount it only if you want to build, and build only files you trust.
+macOS or Windows with Docker Desktop (PowerShell: write it on one line and use `${PWD}`):
 
-- Keep `127.0.0.1:` in `-p`. Without it, others on your network can reach the editor.
-- Result paths are shown as `/work/...`; `/work` is the folder you mounted.
-- On Docker Desktop (macOS, Windows) use `--group-add 0`, and use `--output archive` instead of `folder`, which fails on its mounted folders.
-- The image builds Linux images only.
+```bash
+docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker.sock:/var/run/docker.sock --group-add 0 dockereditor serve --allow-build
+```
 
-## Install (npm)
+Open the whole address it prints (it ends in `#token=…`), then use the **② Build** tab. For the result choose **Local image** or **Image file (.tar)**.
 
-Needs Node.js 22 or later. Building also needs Docker or Podman.
+> **The Docker socket gives full control of the host.** Mount it only to build, and build only files you trust. Keep `127.0.0.1:` in `-p`, or others on your network can reach the editor.
+
+## Without Docker (npm)
+
+Needs Node.js 22 or later.
 
 ```bash
 npm install -g github:beomzh/dockereditor#v0.2.0
 ```
 
-Or run from a clone:
-
 ```bash
-git clone https://github.com/beomzh/dockereditor.git
+dockereditor serve
 ```
 
-```bash
-cd dockereditor && node bin/dockereditor.js serve
-```
-
-## Quick start with npm
-
-```bash
-dockereditor new node
-```
-
-```bash
-dockereditor validate
-```
-
-```bash
-dockereditor serve --allow-build
-```
-
-Open the URL it prints. The screen works in three steps: write in the middle, **① Check images**, then **② Build**.
+Then open http://localhost:4173. More commands are under [Command line](#command-line).
 
 ## Web editor
 
