@@ -105,6 +105,20 @@ test('Windows daemon: no BuildKit options and no folder output', async (t) => {
   const plan = await planBuild({ cwd: dir, tag: 'app:1', platform: 'windows/amd64' }, windows);
   assert.deepEqual(plan.steps[0], ['build', '-t', 'app:1']);
   await assert.rejects(planBuild({ cwd: dir, output: 'folder', dest: 'x' }, windows), (e) => e.key === 'build.noFolderWindows');
+
+  // The Dockerfile is piped in, because it may be on another drive than the context.
+  const { EventEmitter } = await import('node:events');
+  let args;
+  let piped;
+  const spawnImpl = (command, argv) => {
+    args = argv;
+    const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), stdin: new EventEmitter() });
+    child.stdin.end = (text) => { piped = text; queueMicrotask(() => child.emit('close', 0)); };
+    return child;
+  };
+  await runBuild(plan, 'FROM a\n', { onData() {}, spawnImpl, exec: async () => ({ stdout: 'sha256:a|1|windows/amd64\n' }) });
+  assert.equal(args[args.indexOf('-f') + 1], '-');
+  assert.equal(piped, 'FROM a\n');
 });
 
 test('runBuild passes arguments without a shell and removes its temporary Dockerfile', async (t) => {

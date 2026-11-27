@@ -21,6 +21,7 @@ Compared with 0.1.0: real builds, a command line, platform compatibility checks,
 - **Command line** `dockereditor`: validate, check, preview, new, add, set, remove, from, stage, build, serve.
 - **Platform compatibility** table for linux and windows on amd64 and arm64.
 - **Windows Dockerfiles**: backslash paths, `cmd` shell, Windows-only checks and a template.
+- **Windows Docker daemon support**: builds work when the project is on a different drive than the temporary folder.
 - **Languages**: English, Korean, Simplified Chinese, Japanese in the web UI, CLI, README and security policy.
 - **Project files**: Apache-2.0 license, security policy, CI on Linux and Windows (amd64, arm64), CodeQL.
 

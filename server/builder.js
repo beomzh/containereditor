@@ -25,7 +25,8 @@ export async function detectEngine(preferred, exec = run) {
       const format = engine === 'docker'
         ? '{{.ServerVersion}}|{{.OSType}}|{{.Architecture}}|{{.DockerRootDir}}|{{.OperatingSystem}}'
         : '{{.Version.Version}}|{{.Host.OS}}|{{.Host.Arch}}|{{.Store.GraphRoot}}|';
-      const { stdout } = await exec(engine, ['info', '--format', format], { timeout: 15_000 });
+      // A cold daemon (Windows especially) can take a while to answer.
+      const { stdout } = await exec(engine, ['info', '--format', format], { timeout: 60_000 });
       const [version, os, arch, rootDir, operatingSystem] = stdout.trim().split('|');
       if (!version || !os) continue;
       const vm = /docker desktop/i.test(operatingSystem ?? '') || (process.platform !== 'linux' && os === 'linux');
@@ -140,7 +141,8 @@ export async function planBuild(request, daemon) {
     : { type: output, path: destPath, key: output === 'archive' ? 'build.locArchive' : 'build.locFolder', params: { engine, path: destPath } };
   if (output === 'image' && daemon.vm) warnings.push({ key: 'build.vm' });
 
-  return { engine, steps, context: contextPath, output, tag, dest: destPath, location, warnings, storage: daemon.rootDir };
+  // The classic builder cannot use a Dockerfile on another drive than the context, so it is piped in.
+  return { engine, steps, stdin: classic, context: contextPath, output, tag, dest: destPath, location, warnings, storage: daemon.rootDir };
 }
 
 /** Adds the Dockerfile and context to the build step. */
@@ -150,9 +152,14 @@ export const quoteArg = (a) => (/^[\w./:=@,+\\-]+$/.test(a) ? a : `'${a.replace(
 export const commandLines = (plan, dockerfile = 'Dockerfile') => plan.steps
   .map((step, i) => [plan.engine, ...argvFor(plan, step, i, dockerfile)].map(quoteArg).join(' '));
 
-function runStep(command, args, { onData, signal, spawnImpl }) {
+function runStep(command, args, { onData, signal, spawnImpl, input }) {
   return new Promise((done, fail) => {
-    const child = spawnImpl(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, signal });
+    const child = spawnImpl(command, args, { stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], windowsHide: true, signal });
+    if (input !== undefined) {
+      // The engine may exit before reading everything; its exit code reports the failure.
+      child.stdin.on('error', (e) => log('debug', `stdin: ${e.code}`));
+      child.stdin.end(input);
+    }
     child.stdout.on('data', (d) => onData(d.toString()));
     child.stderr.on('data', (d) => onData(d.toString()));
     child.on('error', fail);
@@ -186,7 +193,8 @@ export async function runBuild(plan, content, { onData, signal, spawnImpl = spaw
     if (plan.dest) await mkdir(dirname(plan.dest), { recursive: true });
     for (const [i, step] of plan.steps.entries()) {
       log('info', `start engine=${plan.engine} step=${step[0]} output=${plan.output}`);
-      const code = await runStep(plan.engine, argvFor(plan, step, i, dockerfile), { onData, signal, spawnImpl });
+      const piped = plan.stdin && i === 0;
+      const code = await runStep(plan.engine, argvFor(plan, step, i, piped ? '-' : dockerfile), { onData, signal, spawnImpl, input: piped ? content : undefined });
       log(code ? 'error' : 'info', `end step=${step[0]} code=${code}`);
       if (code !== 0) return { ok: false, code };
     }
