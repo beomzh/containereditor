@@ -4,12 +4,19 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-Compared with 0.2.0: the editor can now run with Docker alone. Impact: optional
+## [0.3.0] - 2026-11-27
+
+Compared with 0.2.0: renamed to containereditor, Kubernetes YAML editing, and running with Docker alone. Impact: optional
+
+### Breaking
+- **The project is now `containereditor`** (was `dockereditor`): command, repository, image name, environment variables (`CONTAINEREDITOR_*`) and browser storage. Reinstall; content autosaved in the browser by 0.2.0 does not carry over.
 
 ### Security
 - **Container mode listens on all container interfaces.** Outside a container nothing changes. Publish the port on `127.0.0.1` only; see `SECURITY.md`.
 
 ### Added
+- **Kubernetes YAML editor** (web and `containereditor k8s`): forms and checks for Deployment, StatefulSet, Job, CronJob, Service, ConfigMap, Secret, Ingress, Route and PersistentVolumeClaim, linked with the Dockerfile.
+- **One runtime dependency**: `yaml` 2.9.1 (ISC).
 - **`Dockerfile` for the editor itself**: web editor and command line without Node.js or npm, with a Docker quick start in four languages.
 - **Step-by-step quick start** in the README, with a troubleshooting table.
 - **Result path hint** inside the container: `/work` is the mounted folder.
@@ -53,6 +60,7 @@ First version: a local web editor for Dockerfile / Containerfile (Korean UI). Im
 - **FROM check**: image and tag lookup in the registry.
 - **Result preview**: stage flow, final process, environment, files and layers without running a build.
 
-[Unreleased]: https://github.com/beomzh/dockereditor/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/beomzh/dockereditor/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/beomzh/dockereditor/releases/tag/v0.1.0
+[Unreleased]: https://github.com/beomzh/containereditor/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/beomzh/containereditor/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/beomzh/containereditor/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/beomzh/containereditor/releases/tag/v0.1.0

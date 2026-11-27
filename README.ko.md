@@ -1,8 +1,8 @@
-# Dockerfile 에디터
+# Container Editor
 
 [English](README.md) | 한국어 | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-**Dockerfile / Containerfile** 을 만들고 고치고, 검사하고, 결과 이미지를 미리 보고, 빌드합니다. 웹과 명령줄 모두 지원하며 외부 패키지를 쓰지 않습니다.
+**Dockerfile / Containerfile** 을 만들고 고치고, 검사하고, 결과 이미지를 미리 보고, 빌드합니다. 웹과 명령줄 모두 지원하며 외부 패키지는 `yaml` 하나만 씁니다. **Kubernetes YAML** 도 편집하고 Dockerfile 과 맞춰 검사합니다.
 
 ## 빠른 시작
 
@@ -11,7 +11,7 @@ Docker 만 설치되어 실행 중이면 됩니다. Linux, macOS, Windows 모두
 ### 1. 에디터 받기 (한 번만)
 
 ```bash
-docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
+docker build -t containereditor https://github.com/beomzh/containereditor.git#main
 ```
 
 1분 정도 걸립니다. 내려받거나 clone 할 것은 없습니다.
@@ -19,7 +19,7 @@ docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
 ### 2. 실행하기
 
 ```bash
-docker run --rm --init -p 127.0.0.1:4173:4173 dockereditor
+docker run --rm --init -p 127.0.0.1:4173:4173 containereditor
 ```
 
 이 터미널은 켜 두세요. `Ctrl+C` 를 누르면 종료됩니다.
@@ -46,7 +46,7 @@ docker run --rm --init -p 127.0.0.1:4173:4173 dockereditor
 현재 폴더의 `Dockerfile` 검사:
 
 ```bash
-docker run --rm -v "$PWD:/work" dockereditor validate --lang ko
+docker run --rm -v "$PWD:/work" containereditor validate --lang ko
 ```
 
 **에디터에서 빌드하기.** Linux:
@@ -56,13 +56,13 @@ docker run --rm --init -p 127.0.0.1:4173:4173 \
   -v "$PWD:/work" --user "$(id -u):$(id -g)" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
-  dockereditor serve --allow-build --lang ko
+  containereditor serve --allow-build --lang ko
 ```
 
 Docker Desktop 을 쓰는 macOS·Windows (PowerShell 은 한 줄로 쓰고 `${PWD}` 사용):
 
 ```bash
-docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker.sock:/var/run/docker.sock --group-add 0 dockereditor serve --allow-build --lang ko
+docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker.sock:/var/run/docker.sock --group-add 0 containereditor serve --allow-build --lang ko
 ```
 
 출력된 주소를 `#token=…` 까지 통째로 열고 **② 빌드** 탭을 씁니다. 결과물은 **로컬 이미지** 또는 **이미지 파일 (.tar)** 을 고르세요.
@@ -74,11 +74,11 @@ docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker
 Node.js 22 이상이 필요합니다.
 
 ```bash
-npm install -g github:beomzh/dockereditor#v0.2.0
+npm install -g github:beomzh/containereditor#v0.3.0
 ```
 
 ```bash
-dockereditor serve --lang ko
+containereditor serve --lang ko
 ```
 
 그다음 http://localhost:4173 을 엽니다. 다른 명령은 [명령줄](#명령줄)을 보세요.
@@ -95,6 +95,25 @@ dockereditor serve --lang ko
 
 언어: 영어(기본), 한국어, 중국어, 일본어.
 
+## Kubernetes YAML
+
+웹 에디터 위쪽의 **Kubernetes** 를 누릅니다. 왼쪽 폼을 채우면 가운데 YAML 이 바뀌고, 주석은 유지됩니다.
+
+- 지원 종류: Deployment, StatefulSet, Job, CronJob, Service, ConfigMap, Secret, Ingress, Route (OpenShift), PersistentVolumeClaim
+- 자주 하는 실수 검사: 아무것도 못 고르는 selector, 리소스 제한 없음, 태그 없는 이미지, 없는 오브젝트 참조
+- **Dockerfile 연계:** `containerPort` 와 `EXPOSE`, `runAsNonRoot` 와 `USER`, `command`/`args` 가 덮는 대상
+- Secret 값은 가려서 보여주고 브라우저에 저장하지 않습니다.
+
+```bash
+containereditor k8s new Deployment
+```
+
+```bash
+containereditor k8s validate k8s.yaml --dockerfile Dockerfile
+```
+
+자주 하는 실수를 찾는 검사이며 클러스터의 전체 스키마 검증이 아닙니다. 클러스터에는 접속하지 않습니다.
+
 ## 명령줄
 
 | 명령 | 설명 |
@@ -108,7 +127,7 @@ dockereditor serve --lang ko
 | `build [파일]` | Docker/Podman 빌드 (`--dry-run` 은 명령만 표시) |
 | `serve` | 웹 에디터 시작 |
 
-파일을 생략하면 `Dockerfile`, 없으면 `Containerfile` 입니다. 전체 옵션은 `dockereditor --help --lang ko`. 종료 코드: `0` 정상, `1` 문제 발견, `2` 사용 오류, `3` 빌드 실패.
+파일을 생략하면 `Dockerfile`, 없으면 `Containerfile` 입니다. 전체 옵션은 `containereditor --help --lang ko`. 종료 코드: `0` 정상, `1` 문제 발견, `2` 사용 오류, `3` 빌드 실패.
 
 ## 빌드 결과가 만들어지는 위치
 
@@ -135,7 +154,7 @@ dockereditor serve --lang ko
 
 ## 원격 Linux 서버에서 쓰기
 
-서버는 `127.0.0.1` 에서만 열립니다. 내 컴퓨터에서 터널을 연 뒤 서버에서 `dockereditor serve` 를 실행하세요.
+서버는 `127.0.0.1` 에서만 열립니다. 내 컴퓨터에서 터널을 연 뒤 서버에서 `containereditor serve` 를 실행하세요.
 
 ```bash
 ssh -L 4173:localhost:4173 user@server
@@ -146,7 +165,7 @@ ssh -L 4173:localhost:4173 user@server
 - 미리보기는 빌드 없이 파일을 해석합니다. `RUN` 이 만드는 파일·사용자는 보이지 않습니다.
 - 자체 검사 규칙이라 Docker/Podman 의 모든 오류를 잡지는 못합니다.
 - 로그인이 필요한 비공개 이미지는 확인할 수 없습니다.
-- 알려진 공개 레지스트리에만 접속합니다. 자체 레지스트리: `DOCKEREDITOR_REGISTRIES=harbor.example.com dockereditor check`
+- 알려진 공개 레지스트리에만 접속합니다. 자체 레지스트리: `CONTAINEREDITOR_REGISTRIES=harbor.example.com containereditor check`
 - Docker Hub 는 익명 요청에 한도가 있습니다.
 - 폼이나 `set` 으로 `ARG`/`ENV` 를 고치면 해당 지시어의 주석·따옴표 모양이 바뀔 수 있습니다.
 

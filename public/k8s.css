@@ -1,0 +1,41 @@
+/* Extra rules for the Kubernetes page; the shared look comes from style.css. */
+#pages { display: flex; gap: 2px; margin-right: 6px; }
+#pages a { padding: 3px 10px; border-radius: 6px; border: 1px solid transparent; color: var(--accent); text-decoration: none; }
+#pages a:hover { border-color: var(--accent); }
+#pages a[aria-current="page"] { border-color: var(--accent); background: var(--bg); color: var(--text); font-weight: 600; }
+
+textarea, select { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+select { min-width: 0; max-width: 100%; }
+
+#notice { padding: 5px 10px; border-bottom: 1px solid var(--border); color: var(--warning); font-weight: 600; }
+
+.steps { margin: 0 0 10px; padding-left: 20px; color: var(--muted); font-size: 12px; }
+
+.docs { list-style: none; margin: 0 0 8px; padding: 0; }
+.docs li { display: flex; gap: 4px; margin-bottom: 4px; }
+.docs button.doc { flex: 1; min-width: 0; text-align: left; display: flex; gap: 6px; align-items: center; overflow-wrap: anywhere; }
+.docs button.doc[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.docs .doc .name { flex: 1; min-width: 0; }
+.dot { flex: none; font-size: 11px; font-weight: 700; }
+
+.help { margin: 0 0 4px; color: var(--muted); }
+.field label { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.field .control { display: flex; gap: 5px; align-items: flex-start; }
+.field .control > input:not([type="checkbox"]), .field .control > select, .field .control > textarea { flex: 1; min-width: 0; width: 0; }
+.field textarea, .add textarea { padding: 4px 9px; resize: vertical; min-height: 60px; white-space: pre; }
+.field input[type="checkbox"] { width: 16px; height: 16px; margin: 3px 0; }
+.masked { -webkit-text-security: disc; }
+.add { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.add .title { width: 100%; font-size: 12px; font-weight: 600; }
+.add > input, .add > select { flex: 1 1 90px; min-width: 0; }
+.add > textarea { flex: 1 1 100%; }
+.add > button { flex: none; }
+
+.object { display: block; width: 100%; text-align: left; margin-bottom: 4px; overflow-wrap: anywhere; }
+.object.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.object .line { display: block; color: var(--muted); font-size: 12px; }
+.links { margin: 0 0 10px; padding: 0 0 0 14px; list-style: none; font-size: 12px; overflow-wrap: anywhere; }
+.links li.missing { color: var(--muted); }
+.image { margin-bottom: 8px; overflow-wrap: anywhere; }
+.toggle { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; cursor: pointer; }
+.empty button { margin-top: 8px; }

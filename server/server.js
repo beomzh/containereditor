@@ -3,7 +3,8 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createChecker } from './registry.js';
 import { detectEngine, planBuild, runBuild, commandLines } from './builder.js';
@@ -11,6 +12,9 @@ import { LocalizedError } from '../public/core/i18n.js';
 import { logger, setVerbose } from './log.js';
 
 const ROOT = fileURLToPath(new URL('../public', import.meta.url));
+// The YAML library's browser build, served from node_modules so no bundler or CDN is needed.
+const VENDOR_PREFIX = '/vendor/yaml/';
+const VENDOR = join(dirname(createRequire(import.meta.url).resolve('yaml/package.json')), 'browser');
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -145,8 +149,10 @@ export function createApp({
       }
 
       const path = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
-      const file = normalize(join(ROOT, path));
-      if (!file.startsWith(ROOT + sep)) return json(res, 403, { message: 'forbidden' });
+      const vendor = path.startsWith(VENDOR_PREFIX);
+      const base = vendor ? VENDOR : ROOT;
+      const file = normalize(join(base, vendor ? path.slice(VENDOR_PREFIX.length) : path));
+      if (!file.startsWith(base + sep)) return json(res, 403, { message: 'forbidden' });
       const body = await readFile(file);
       return send(res, 200, body, TYPES[extname(file)] ?? 'application/octet-stream');
     } catch (e) {
@@ -160,7 +166,7 @@ export function createApp({
 }
 
 /** Starts the server and returns the URL to open. */
-export function serve({ port = 4173, container = process.env.DOCKEREDITOR_CONTAINER === '1', ...options } = {}) {
+export function serve({ port = 4173, container = process.env.CONTAINEREDITOR_CONTAINER === '1', ...options } = {}) {
   setVerbose(true);
   // A published port reaches a container on its external interface. Outside a container, loopback only.
   const host = container ? '0.0.0.0' : '127.0.0.1';

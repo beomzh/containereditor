@@ -9,10 +9,10 @@ function readToken() {
   const found = location.hash.match(/token=([0-9a-f]+)/);
   try {
     if (found) {
-      sessionStorage.setItem('dockereditor.token', found[1]);
+      sessionStorage.setItem('containereditor.token', found[1]);
       history.replaceState(null, '', location.pathname + location.search);
     }
-    return sessionStorage.getItem('dockereditor.token') ?? '';
+    return sessionStorage.getItem('containereditor.token') ?? '';
   } catch (e) {
     console.warn('[BUILD] sessionStorage unavailable:', e);
     return found?.[1] ?? '';
@@ -47,7 +47,7 @@ export function createBuildPanel({ root, h, t, toast, current }) {
     const { filename, target, buildArgs } = current();
     // POSIX single quotes: nothing inside is interpreted by the shell.
     const quote = (v) => (/^[\w./:=-]+$/.test(v) ? v : `'${v.replace(/'/g, "'\\''")}'`);
-    return ['dockereditor build', quote(filename), `--platform ${current().platform}`, `--output ${state.output}`,
+    return ['containereditor build', quote(filename), `--platform ${current().platform}`, `--output ${state.output}`,
       target ? `--target ${quote(target)}` : null,
       ...Object.entries(buildArgs).map(([k, v]) => `--build-arg ${quote(`${k}=${v}`)}`),
       state.output === 'folder' ? null : `--tag ${quote(state.tag)}`,
@@ -68,7 +68,7 @@ export function createBuildPanel({ root, h, t, toast, current }) {
     if (!state.enabled || !token) {
       els = { command: h('div') };
       root.replaceChildren(
-        h('div', { class: 'card' }, h('p', {}, t('ui.buildOff')), commandBlock('dockereditor serve --allow-build')),
+        h('div', { class: 'card' }, h('p', {}, t('ui.buildOff')), commandBlock('containereditor serve --allow-build')),
         h('div', { class: 'card' }, h('h2', {}, t('ui.command')), els.command));
       els.command.replaceChildren(...commandBlock(cliCommand()));
       return;

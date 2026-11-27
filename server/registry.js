@@ -11,7 +11,7 @@ const ACCEPT = [
 ].join(', ');
 
 // The registry host comes from the file being edited, so only known public registries are
-// contacted. Add private ones with DOCKEREDITOR_REGISTRIES=host[:port],host2
+// contacted. Add private ones with CONTAINEREDITOR_REGISTRIES=host[:port],host2
 const PUBLIC_REGISTRIES = [
   'registry-1.docker.io', 'ghcr.io', 'quay.io', 'gcr.io', 'public.ecr.aws', 'mcr.microsoft.com',
   'registry.k8s.io', 'registry.access.redhat.com', 'registry.redhat.io', 'registry.gitlab.com',
@@ -21,7 +21,7 @@ const PUBLIC_SUFFIXES = ['.gcr.io', '.pkg.dev', '.azurecr.io'];
 // Token services that live on a different host than their registry.
 const TOKEN_HOSTS = ['auth.docker.io', 'gitlab.com', 'sso.redhat.com'];
 
-export function allowedRegistry(host, extra = process.env.DOCKEREDITOR_REGISTRIES ?? '') {
+export function allowedRegistry(host, extra = process.env.CONTAINEREDITOR_REGISTRIES ?? '') {
   const added = extra.split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
   const name = host.toLowerCase();
   return PUBLIC_REGISTRIES.includes(name) || added.includes(name) || PUBLIC_SUFFIXES.some((s) => name.endsWith(s));

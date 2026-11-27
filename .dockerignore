@@ -1,6 +1,7 @@
 # Only what the image needs
 *
 !package.json
+!package-lock.json
 !LICENSE
 !NOTICE
 !bin

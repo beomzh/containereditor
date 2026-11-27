@@ -1,8 +1,8 @@
-# Dockerfile 编辑器
+# Container Editor
 
 [English](README.md) | [한국어](README.ko.md) | 简体中文 | [日本語](README.ja.md)
 
-编写和修改 **Dockerfile / Containerfile**，检查语法，预览最终镜像并执行构建。支持网页和命令行，不依赖第三方包。
+编写和修改 **Dockerfile / Containerfile**，检查语法，预览最终镜像并执行构建。支持网页和命令行，仅依赖一个第三方包（`yaml`）。 还可以编辑 **Kubernetes YAML**，并对照 Dockerfile 进行检查。
 
 ## 快速开始
 
@@ -11,7 +11,7 @@
 ### 1. 获取编辑器（只需一次）
 
 ```bash
-docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
+docker build -t containereditor https://github.com/beomzh/containereditor.git#main
 ```
 
 大约需要一分钟，无需下载或克隆任何内容。
@@ -19,7 +19,7 @@ docker build -t dockereditor https://github.com/beomzh/dockereditor.git#main
 ### 2. 启动
 
 ```bash
-docker run --rm --init -p 127.0.0.1:4173:4173 dockereditor
+docker run --rm --init -p 127.0.0.1:4173:4173 containereditor
 ```
 
 保持此终端打开。按 `Ctrl+C` 停止。
@@ -46,7 +46,7 @@ docker run --rm --init -p 127.0.0.1:4173:4173 dockereditor
 检查当前目录的 `Dockerfile`：
 
 ```bash
-docker run --rm -v "$PWD:/work" dockereditor validate --lang zh
+docker run --rm -v "$PWD:/work" containereditor validate --lang zh
 ```
 
 **在编辑器中构建。** Linux：
@@ -56,13 +56,13 @@ docker run --rm --init -p 127.0.0.1:4173:4173 \
   -v "$PWD:/work" --user "$(id -u):$(id -g)" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
-  dockereditor serve --allow-build --lang zh
+  containereditor serve --allow-build --lang zh
 ```
 
 使用 Docker Desktop 的 macOS、Windows（PowerShell 请写成一行并使用 `${PWD}`）：
 
 ```bash
-docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker.sock:/var/run/docker.sock --group-add 0 dockereditor serve --allow-build --lang zh
+docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker.sock:/var/run/docker.sock --group-add 0 containereditor serve --allow-build --lang zh
 ```
 
 完整打开输出的网址（以 `#token=…` 结尾），然后使用 **② 构建** 标签页。结果请选择 **本地镜像** 或 **镜像文件 (.tar)**。
@@ -74,11 +74,11 @@ docker run --rm --init -p 127.0.0.1:4173:4173 -v "$PWD:/work" -v /var/run/docker
 需要 Node.js 22 或更高版本。
 
 ```bash
-npm install -g github:beomzh/dockereditor#v0.2.0
+npm install -g github:beomzh/containereditor#v0.3.0
 ```
 
 ```bash
-dockereditor serve --lang zh
+containereditor serve --lang zh
 ```
 
 然后打开 http://localhost:4173。其他命令见[命令行](#命令行)。
@@ -95,6 +95,25 @@ dockereditor serve --lang zh
 
 语言：英语（默认）、韩语、中文、日语。
 
+## Kubernetes YAML
+
+点击网页编辑器顶部的 **Kubernetes**。填写左侧表单，中间的 YAML 随之改变，注释会保留。
+
+- 支持类型：Deployment, StatefulSet, Job, CronJob, Service, ConfigMap, Secret, Ingress, Route (OpenShift), PersistentVolumeClaim
+- 检查常见错误：匹配不到任何对象的 selector、缺少资源限制、未指定标签的镜像、引用不存在的对象
+- **与 Dockerfile 联动：** `containerPort` 对照 `EXPOSE`，`runAsNonRoot` 对照 `USER`，以及 `command`/`args` 覆盖的内容
+- Secret 值以掩码显示，且不会保存在浏览器中。
+
+```bash
+containereditor k8s new Deployment
+```
+
+```bash
+containereditor k8s validate k8s.yaml --dockerfile Dockerfile
+```
+
+这些是常见错误检查，并非完整的集群模式校验。编辑器不会连接集群。
+
 ## 命令行
 
 | 命令 | 说明 |
@@ -108,7 +127,7 @@ dockereditor serve --lang zh
 | `build [文件]` | 用 Docker/Podman 构建（`--dry-run` 仅显示命令） |
 | `serve` | 启动网页编辑器 |
 
-省略文件时依次查找 `Dockerfile`、`Containerfile`。全部选项见 `dockereditor --help --lang zh`。退出码：`0` 正常，`1` 发现问题，`2` 用法错误，`3` 构建失败。
+省略文件时依次查找 `Dockerfile`、`Containerfile`。全部选项见 `containereditor --help --lang zh`。退出码：`0` 正常，`1` 发现问题，`2` 用法错误，`3` 构建失败。
 
 ## 构建结果在哪里
 
@@ -135,7 +154,7 @@ dockereditor serve --lang zh
 
 ## 在远程 Linux 服务器上使用
 
-服务器只监听 `127.0.0.1`。先在本机建立隧道，再在服务器上运行 `dockereditor serve`。
+服务器只监听 `127.0.0.1`。先在本机建立隧道，再在服务器上运行 `containereditor serve`。
 
 ```bash
 ssh -L 4173:localhost:4173 user@server
@@ -146,7 +165,7 @@ ssh -L 4173:localhost:4173 user@server
 - 预览不执行构建，看不到 `RUN` 创建的文件和用户。
 - 检查规则为本项目自定义，无法发现 Docker/Podman 的所有错误。
 - 无法检查需要登录的私有镜像。
-- 只连接常见的公共仓库。自建仓库：`DOCKEREDITOR_REGISTRIES=harbor.example.com dockereditor check`
+- 只连接常见的公共仓库。自建仓库：`CONTAINEREDITOR_REGISTRIES=harbor.example.com containereditor check`
 - Docker Hub 限制匿名请求次数。
 - 通过表单或 `set` 修改 `ARG`/`ENV` 时，该指令内的注释和引号形式可能改变。
 

@@ -72,7 +72,7 @@ export async function planBuild(request, daemon) {
   const {
     context = '.', output = 'image', dest = '', tag = 'myimage:latest', platform = '',
     target = '', buildArgs = {}, workspace = null, force = false, cwd = process.cwd(),
-    container = process.env.DOCKEREDITOR_CONTAINER === '1',
+    container = process.env.CONTAINEREDITOR_CONTAINER === '1',
   } = request;
   const bad = (field, value) => new LocalizedError('build.badValue', { field, value });
   for (const [field, value] of Object.entries({ context, output, dest, tag, platform, target })) {
@@ -188,7 +188,7 @@ async function inspect(plan, exec) {
  * so the user's files are never modified.
  */
 export async function runBuild(plan, content, { onData, signal, spawnImpl = spawn, exec = run } = {}) {
-  const temp = await mkdtemp(join(tmpdir(), 'dockereditor-'));
+  const temp = await mkdtemp(join(tmpdir(), 'containereditor-'));
   try {
     const dockerfile = join(temp, 'Dockerfile');
     await writeFile(dockerfile, content);
